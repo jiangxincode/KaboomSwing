@@ -76,19 +76,21 @@ public class DragScrollSupport extends MouseAdapter {
 	
 	@Override
 	public void mouseReleased(MouseEvent e) {
-		if (isDragging && e.getButton() == dragButton) {
+		if (isDragging) {
 			JComponent c = (JComponent)e.getSource();
 			move(e);
 			c.setCursor(cursor);
 			cursor = null;
 			c.setAutoscrolls(autoscrolls);
 			e.consume();
+			isDragging = false;
 		}
+		startX = -1;
 	}
 	
 	@Override
 	public void mouseDragged(MouseEvent e) {
-		if (e.getButton() == dragButton) {
+		if (startX >= 0) {
 			if (!isDragging) {
 				JComponent c = (JComponent)e.getSource();
 				isDragging = true;
