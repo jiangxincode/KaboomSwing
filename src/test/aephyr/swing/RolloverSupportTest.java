@@ -80,6 +80,16 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 		tableActor = new TableActor();
 		treeActor = new TreeActor();
 		
+		DragScrollSupport dss = new DragScrollSupport();
+		dss.register(list);
+		dss.register(table);
+		dss.register(tree);
+		ScrollPadSupport sps = new ScrollPadSupport();
+		sps.register(list);
+		sps.register(table);
+		sps.register(tree);
+		
+		
 		enabled = new JCheckBoxMenuItem("Enable Rollover Support", true);
 		enabled.addItemListener(this);
 		simulation = new JCheckBoxMenuItem("Simulation", false);
@@ -122,18 +132,6 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 		north.add(simulationInterval);
 		north.add(new JLabel("    Apply Action To: "));
 		ButtonGroup group = new ButtonGroup();
-		listRadio = new JRadioButton("List", true);
-		listRadio.addItemListener(this);
-		group.add(listRadio);
-		north.add(listRadio);
-		tableRadio = new JRadioButton("Table", false);
-		tableRadio.addItemListener(this);
-		group.add(tableRadio);
-		north.add(tableRadio);
-		treeRadio = new JRadioButton("Tree", false);
-		treeRadio.addItemListener(this);
-		group.add(treeRadio);
-		north.add(treeRadio);
 		north.add(Box.createHorizontalGlue());
 		
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -159,19 +157,16 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 	JList list;
 	DefaultListCellRenderer listRollover;
 	RolloverSupport.List listRolloverSupport;
-	JRadioButton listRadio;
 	ListActor listActor;
 	
 	JTable table;
 	DefaultTableCellRenderer tableRollover;
 	RolloverSupport.Table tableRolloverSupport;
-	JRadioButton tableRadio;
 	TableActor tableActor;
 	
 	JTree tree;
 	DefaultTreeCellRenderer treeRollover;
 	RolloverSupport.Tree treeRolloverSupport;
-	JRadioButton treeRadio;
 	TreeActor treeActor;
 	
 	JCheckBoxMenuItem enabled;
@@ -183,10 +178,11 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 	SpinnerNumberModel simulationModel;
 	Timer simulationTimer;
 	Random random = new Random();
+	static final int ROWS = 200;
 	
 	ListModel createListModel() {
 		DefaultListModel model = new DefaultListModel();
-		for (int i=20; --i>=0;)
+		for (int i=ROWS; --i>=0;)
 			model.addElement(createCellValue());
 		return model;
 	}
@@ -197,7 +193,7 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 				return Integer.class;
 			}
 		};
-		for (int i=20; --i>=0;)
+		for (int i=ROWS; --i>=0;)
 			model.addRow(new Object[]{
 					createCellValue(), createCellValue(), createCellValue()});
 		return model;
@@ -210,7 +206,7 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 	MutableTreeNode createTreeNode(int depth) {
 		DefaultMutableTreeNode node = new DefaultMutableTreeNode(createCellValue());
 		if (--depth >= 0)
-			for (int i=random.nextInt(3)+1; --i>=0;)
+			for (int i=random.nextInt((depth/2+1)*Math.round(ROWS/20f))+1; --i>=0;)
 				node.add(createTreeNode(depth));
 		return node;
 	}
@@ -299,11 +295,11 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 	}
 	
 	Actor getActor() {
-		if (listRadio.isSelected())
+		if (list.getMousePosition(true) != null)
 			return listActor;
-		if (tableRadio.isSelected())
-			return tableActor;
-		return treeActor;
+		if (tree.getMousePosition(true) != null)
+			return treeActor;
+		return tableActor;
 	}
 	
 	public void stateChanged(ChangeEvent e) {
@@ -406,3 +402,4 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 	}
 	
 }
+
