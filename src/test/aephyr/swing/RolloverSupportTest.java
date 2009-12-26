@@ -60,7 +60,12 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 		};
 		treeRolloverSupport = new RolloverSupport.Tree(tree, treeRollover);
 		
-		table = new JTable(createTableModel());
+		TableColumnModel columns = new DefaultTableColumnModel();
+		for (int i=0; i<COLUMNS; i++)
+			columns.addColumn(createTableColumn(i));
+		
+		table = new JTable(createTableModel(), columns);
+		table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
 		table.setAutoCreateRowSorter(true);
 		tableRollover = new DefaultTableCellRenderer() {
 			@Override
@@ -130,8 +135,6 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 		simulationModel.addChangeListener(this);
 		north.add(new JLabel("    Simulation Interval: "));
 		north.add(simulationInterval);
-		north.add(new JLabel("    Apply Action To: "));
-		ButtonGroup group = new ButtonGroup();
 		north.add(Box.createHorizontalGlue());
 		
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -179,6 +182,7 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 	Timer simulationTimer;
 	Random random = new Random();
 	static final int ROWS = 200;
+	static final int COLUMNS = 10;
 	
 	ListModel createListModel() {
 		DefaultListModel model = new DefaultListModel();
@@ -188,14 +192,20 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 	}
 	
 	TableModel createTableModel() {
-		DefaultTableModel model = new DefaultTableModel(new Object[]{"1","2","3"}, 0) {
+		Object[] cols = new Object[COLUMNS];
+		for (int i=COLUMNS; --i>=0;)
+			cols[i] = Integer.toString(i);
+		DefaultTableModel model = new DefaultTableModel(cols, 0) {
 			public Class<?> getColumnClass(int col) {
 				return Integer.class;
 			}
 		};
-		for (int i=ROWS; --i>=0;)
-			model.addRow(new Object[]{
-					createCellValue(), createCellValue(), createCellValue()});
+		for (int i=ROWS; --i>=0;) {
+			Object[] row = new Object[COLUMNS];
+			for (int j=COLUMNS; --j>=0;)
+				row[j] = createCellValue();
+			model.addRow(row);
+		}
 		return model;
 	}
 	
@@ -209,6 +219,14 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 			for (int i=random.nextInt((depth/2+1)*Math.round(ROWS/20f))+1; --i>=0;)
 				node.add(createTreeNode(depth));
 		return node;
+	}
+	
+	TableColumn createTableColumn(int n) {
+		TableColumn column = new TableColumn(n, 100);
+		column.setMinWidth(100);
+		column.setResizable(true);
+		column.setHeaderValue(Integer.toString(n));
+		return column;
 	}
 	
 	Integer createCellValue() {

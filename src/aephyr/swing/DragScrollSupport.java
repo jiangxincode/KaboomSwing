@@ -45,20 +45,38 @@ public class DragScrollSupport extends MouseAdapter {
 	
 	private boolean isDragging;
 	
-	public void mousePressed(MouseEvent e) {
-		JComponent c = (JComponent)e.getSource();
-		startX = e.getX();
-		startY = e.getY();
-		int w = c.getWidth();
-		int h = c.getHeight();
-		c.computeVisibleRect(visible);
-		maxX = w - visible.width;
-		maxY = h - visible.height;
-		isDragging = false;
+	private int dragButton = MouseEvent.BUTTON1;
+	
+	public void setDragButton(int button) {
+		switch (button) {
+		default: throw new IllegalArgumentException();
+		case MouseEvent.BUTTON1: case MouseEvent.BUTTON2: case MouseEvent.BUTTON3:
+		}
+		dragButton = button;
 	}
 	
+	public int getDragButton() {
+		return dragButton;
+	}
+	
+	@Override
+	public void mousePressed(MouseEvent e) {
+		if (e.getButton() == dragButton) {
+			JComponent c = (JComponent)e.getSource();
+			startX = e.getX();
+			startY = e.getY();
+			int w = c.getWidth();
+			int h = c.getHeight();
+			c.computeVisibleRect(visible);
+			maxX = w - visible.width;
+			maxY = h - visible.height;
+			isDragging = false;
+		}
+	}
+	
+	@Override
 	public void mouseReleased(MouseEvent e) {
-		if (isDragging) {
+		if (isDragging && e.getButton() == dragButton) {
 			JComponent c = (JComponent)e.getSource();
 			move(e);
 			c.setCursor(cursor);
@@ -68,19 +86,22 @@ public class DragScrollSupport extends MouseAdapter {
 		}
 	}
 	
+	@Override
 	public void mouseDragged(MouseEvent e) {
-		if (!isDragging) {
-			JComponent c = (JComponent)e.getSource();
-			isDragging = true;
-			cursor = c.isCursorSet() ? c.getCursor() : null;
-			autoscrolls = c.getAutoscrolls();
-			c.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
-			c.setAutoscrolls(false);
+		if (e.getButton() == dragButton) {
+			if (!isDragging) {
+				JComponent c = (JComponent)e.getSource();
+				isDragging = true;
+				cursor = c.isCursorSet() ? c.getCursor() : null;
+				autoscrolls = c.getAutoscrolls();
+				c.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+				c.setAutoscrolls(false);
+			}
+			move(e);
+			e.consume();
 		}
-		move(e);
-		e.consume();
 	}
-	
+
 	private void move(MouseEvent e) {
 		Rectangle v = visible;
 		int newX = v.x + startX - e.getX();
