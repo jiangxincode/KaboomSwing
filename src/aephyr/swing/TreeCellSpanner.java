@@ -80,7 +80,7 @@ public class TreeCellSpanner extends Container implements TreeCellRenderer, Comp
 	
 	@Override
 	public void paint(Graphics g) {
-		if (renderer != null)
+		if (rendererComponent != null)
 			rendererComponent.paint(g);
 	}
 	
