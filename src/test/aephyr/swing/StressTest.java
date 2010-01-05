@@ -267,7 +267,8 @@ public class StressTest implements Runnable, ActionListener, ItemListener, Chang
 		}
 		public void addRow(boolean underMouse) {
 			int idx = underMouse ? getIndexUnderMouse() : random.nextInt(list.getModel().getSize()+1);
-			((DefaultListModel)list.getModel()).add(idx, createCellValue());
+			if (idx >= 0)
+				((DefaultListModel)list.getModel()).add(idx, createCellValue());
 		}
 		public void deleteRow(boolean underMouse) {
 			int idx = underMouse ? getIndexUnderMouse() : random.nextInt(list.getModel().getSize());
@@ -342,7 +343,7 @@ public class StressTest implements Runnable, ActionListener, ItemListener, Chang
 		}
 		public void addRow(boolean underMouse) {
 			TreePath path = getPath(underMouse);
-			if (path.getPathCount() > 1) {
+			if (path != null && path.getPathCount() > 1) {
 				TreePath parent = path.getParentPath();
 				DefaultMutableTreeNode node = (DefaultMutableTreeNode)parent.getLastPathComponent();
 				int idx = node.getIndex((TreeNode)path.getLastPathComponent());
