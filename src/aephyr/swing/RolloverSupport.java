@@ -25,18 +25,107 @@ import javax.swing.event.*;
 import javax.swing.tree.*;
 import javax.swing.table.*;
 
-public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 
+public class RolloverSupport extends MouseAdapter implements ComponentListener {
+
+	private static Component rolloverComponent;
+	
+	private static RolloverSupport rolloverSupport;
+	
+	private static int registeredCount;
+	
+	private static AWTEventListener awtListener;
+	
+	private static void setRolloverComponent(RolloverSupport s, Container p, Component c, Rectangle b) {
+		Container oldParent = null;
+		if (rolloverComponent != null) {
+			oldParent = rolloverComponent.getParent();
+			if (oldParent != null)
+				repaint(oldParent, rolloverComponent);
+		}
+		if (c != rolloverComponent) {
+			if (rolloverComponent != null && oldParent != null)
+				rolloverSupport.hide(rolloverComponent, oldParent != p);
+			rolloverComponent = c;
+			if (c != null) {
+				if (!s.isRegistered)
+					registerAWTEventListener(s);
+				p.add(c, 0);
+			}
+		}
+		if (c != null) {
+			c.setBounds(b);
+			repaint(p, c);
+			rolloverSupport = s;
+		} else if (rolloverSupport == s) {
+			rolloverSupport = null;
+		}
+		p.validate();
+	}
+	
+	private static void registerAWTEventListener(RolloverSupport s) {
+		s.isRegistered = true;
+		if (registeredCount++ == 0) {
+			awtListener = new AWTEventListener() {
+				@Override
+				public void eventDispatched(AWTEvent event) {
+					if (rolloverComponent != null) {
+						switch (event.getID()) {
+						case MouseEvent.MOUSE_ENTERED:
+							if (event.getSource() == rolloverComponent) {
+								rolloverSupport.doHide = false;
+							} else if (event.getSource() instanceof Component) {
+								Component c = (Component)event.getSource();
+								for (Container p=c.getParent(); p!=null; p=p.getParent()) {
+									if (p == rolloverComponent) {
+										rolloverSupport.doHide = false;
+										break;
+									}
+								}
+							}
+							break;
+						case MouseEvent.MOUSE_EXITED:
+							if (event.getSource() == rolloverComponent) {
+								rolloverSupport.deferHideRolloverComponent();
+							}
+							break;
+						}
+					}
+				}
+			};
+			AccessController.doPrivileged(new PrivilegedAction<Void>() {
+				public Void run() {
+					Toolkit.getDefaultToolkit().addAWTEventListener(
+							awtListener, AWTEvent.MOUSE_EVENT_MASK);
+					return null;
+				}
+			});
+		}
+	}
+	
+	private static void unregisterAWTEventListener(RolloverSupport s) {
+		s.isRegistered = false;
+		if (--registeredCount == 0) {
+			AccessController.doPrivileged(new PrivilegedAction<Void>() {
+				public Void run() {
+					Toolkit.getDefaultToolkit().removeAWTEventListener(awtListener);
+					return null;
+				}
+			});
+		}
+	}
+
+	
 	private boolean isRegistered = false;
 	
 	private boolean isEnabled = true;
 	
-	private boolean doHide;
+	private boolean doHide = false;
 	
-	private Component rolloverComponent;
+	private boolean doValidate = true;
 
 	public Component getRolloverComponent() {
-		return rolloverComponent;
+		return rolloverSupport == this ? rolloverComponent : null;
 	}
 	
 	public boolean isEnabled() {
@@ -48,7 +137,7 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 		if (!enabled) {
 			hideRolloverComponent();
 			if (isRegistered)
-				unregisterAWTEventListener();
+				unregisterAWTEventListener(this);
 		}
 	}
 	
@@ -56,80 +145,12 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 		if (isEnabled)
 			setEnabled(false);
 		if (isRegistered)
-			unregisterAWTEventListener();
+			unregisterAWTEventListener(this);
 	}
 	
 	public void setRolloverComponent(Container parent, Component rollover, Rectangle bounds) {
 		doHide = false;
-		Container oldParent = null;
-		if (rolloverComponent != null) {
-			oldParent = rolloverComponent.getParent();
-			if (oldParent != null)
-				repaint(oldParent, rolloverComponent);
-		}
-		if (rollover != rolloverComponent) {
-			if (rolloverComponent != null && oldParent != null)
-				hide(rolloverComponent, oldParent != parent);
-			rolloverComponent = rollover;
-			if (rollover != null) {
-				if (!isRegistered)
-					registerAWTEventListener();
-				parent.add(rollover, 0);
-			}
-		}
-		if (rollover != null) {
-			rollover.setBounds(bounds);
-			repaint(parent, rollover);
-		}
-		parent.validate();
-	}
-	
-	private void registerAWTEventListener() {
-		isRegistered = true;
-		AccessController.doPrivileged(new PrivilegedAction<Void>() {
-			public Void run() {
-				Toolkit.getDefaultToolkit().addAWTEventListener(
-						RolloverSupport.this, AWTEvent.MOUSE_EVENT_MASK);
-				return null;
-			}
-		});
-	}
-	
-	private void unregisterAWTEventListener() {
-		isRegistered = false;
-		AccessController.doPrivileged(new PrivilegedAction<Void>() {
-			public Void run() {
-				Toolkit.getDefaultToolkit().removeAWTEventListener(
-						RolloverSupport.this);
-				return null;
-			}
-		});
-	}
-
-	@Override
-	public void eventDispatched(AWTEvent event) {
-		if (rolloverComponent != null) {
-			switch (event.getID()) {
-			case MouseEvent.MOUSE_ENTERED:
-				if (event.getSource() == rolloverComponent) {
-					doHide = false;
-				} else if (event.getSource() instanceof Component) {
-					Component c = (Component)event.getSource();
-					for (Container p=c.getParent(); p!=null; p=p.getParent()) {
-						if (p == rolloverComponent) {
-							doHide = false;
-							break;
-						}
-					}
-				}
-				break;
-			case MouseEvent.MOUSE_EXITED:
-				if (event.getSource() == rolloverComponent) {
-					deferHideRolloverComponent();
-				}
-				break;
-			}
-		}
+		setRolloverComponent(this, parent, rollover, bounds);
 	}
 	
 	/**
@@ -141,7 +162,7 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 	 * @see #hide(Component, boolean)
 	 */
 	public void deferHideRolloverComponent() {
-		if (rolloverComponent != null) {
+		if (rolloverComponent != null && !doHide) {
 			doHide = true;
 			EventQueue.invokeLater(new Runnable() {
 				public void run() {
@@ -160,9 +181,10 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 	 * @see #hide(Component, boolean)
 	 */
 	protected void hideRolloverComponent() {
-		if (rolloverComponent != null) {
+		if (rolloverSupport == this) {
 			hide(rolloverComponent, true);
 			rolloverComponent = null;
+			rolloverSupport = null;
 		}
 	}
 	
@@ -191,10 +213,58 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 	public void mouseExited(MouseEvent e) {
 		deferHideRolloverComponent();
 	}
+	
+	@Override
+	public void componentHidden(ComponentEvent e) {
+		hideRolloverComponent();
+	}
+
+	@Override
+	public void componentMoved(ComponentEvent e) {
+		deferValidate();
+	}
+
+	@Override
+	public void componentResized(ComponentEvent e) {
+		deferValidate();
+	}
+
+	@Override
+	public void componentShown(ComponentEvent e) {
+		deferValidate();
+	}
+	
+	/**
+	 * Must be used instead of validate for instances where the cause
+	 * of validation comes from an event that the UI may need to process
+	 * first.
+	 * 
+	 * @see #validate()
+	 */
+	public void deferValidate() {
+		if (doValidate && isMouseOverComponent()) {
+			doValidate = false;
+			EventQueue.invokeLater(new Runnable() {
+				public void run() {
+					doValidate = true;
+					validate();
+				}
+			});
+		}
+	}
+	
+	protected boolean isMouseOverComponent() { return false; }
+	
+	/**
+	 * Validates the current rollover state/component.
+	 * 
+	 * @see #deferValidate()
+	 */
+	public void validate() {}
+	
 
 	
 	public static abstract class Indexed extends RolloverSupport {
-		
 		
 		private int rolloverIndex = -1; 
 		
@@ -236,11 +306,15 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 		
 		@Override
 		public void mouseMoved(MouseEvent e) {
-			setRolloverIndex(locationToIndex(new Point(e.getX(), e.getY())));
+			setRolloverIndex(e);
 		}
 		
 		@Override
 		public void mouseDragged(MouseEvent e) {
+			setRolloverIndex(e);
+		}
+		
+		private void setRolloverIndex(MouseEvent e) {
 			setRolloverIndex(locationToIndex(new Point(e.getX(), e.getY())));
 		}
 		
@@ -274,6 +348,7 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 			list.addListSelectionListener(this);
 			list.getModel().addListDataListener(this);
 			list.addPropertyChangeListener(this);
+			list.addComponentListener(this);
 		}
 		
 		protected void removeListeners() {
@@ -282,7 +357,7 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 			list.removeListSelectionListener(this);
 			list.getModel().removeListDataListener(this);
 			list.removePropertyChangeListener(this);
-			
+			list.removeComponentListener(this);
 		}
 
 		@Override
@@ -343,29 +418,13 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 				setEnabled((Boolean)evt.getNewValue());
 			}
 		}
-
-		/**
-		 * Must be used instead of validate for instances where the cause
-		 * of validation comes from an event that the UI may need to process
-		 * first.
-		 * 
-		 * @see #validate()
-		 */
-		public void deferValidate() {
-			if (getRolloverIndex() >= 0 || list.getMousePosition(true) != null) {
-				EventQueue.invokeLater(new Runnable() {
-					public void run() {
-						validate();
-					}
-				});
-			}
+		
+		@Override
+		protected boolean isMouseOverComponent() {
+			return getRolloverIndex() >= 0 || list.getMousePosition(true) != null;
 		}
 
-		/**
-		 * Validates the current rollover state/component.
-		 * 
-		 * @see #deferValidate()
-		 */
+		@Override
 		public void validate() {
 			Point pt = list.getMousePosition(true);
 			if (pt != null) {
@@ -436,6 +495,7 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 			tree.addTreeExpansionListener(this);
 			tree.getModel().addTreeModelListener(this);
 			tree.addPropertyChangeListener(this);
+			tree.addComponentListener(this);
 		}
 		
 		protected void removeListeners() {
@@ -445,6 +505,7 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 			tree.removeTreeExpansionListener(this);
 			tree.getModel().removeTreeModelListener(this);
 			tree.removePropertyChangeListener(this);
+			tree.removeComponentListener(this);
 		}
 
 		@Override
@@ -501,7 +562,7 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 					Object[] children = e.getChildren();
 					if (children == null) {
 						deferValidate();
-					} else if (children != null) {
+					} else {
 						for (Object child : children) {
 							TreePath path = parent.pathByAddingChild(child);
 							row = tree.getRowForPath(path);
@@ -545,29 +606,13 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 				setEnabled((Boolean)evt.getNewValue());
 			}
 		}
-
-		/**
-		 * Must be used instead of validate for instances where the cause
-		 * of validation comes from an event that the UI may need to process
-		 * first.
-		 * 
-		 * @see #validate()
-		 */
-		public void deferValidate() {
-			if (getRolloverIndex() >= 0 || tree.getMousePosition(true) != null) {
-				EventQueue.invokeLater(new Runnable() {
-					public void run() {
-						validate();
-					}
-				});
-			}
+		
+		@Override
+		protected boolean isMouseOverComponent() {
+			return getRolloverIndex() >= 0 || tree.getMousePosition(true) != null;
 		}
 
-		/**
-		 * Validates the current rollover state/component.
-		 * 
-		 * @see #deferValidate()
-		 */
+		@Override
 		public void validate() {
 			Point pt = tree.getMousePosition(true);
 			if (pt != null) {
@@ -586,7 +631,8 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 	
 	
 	public static class Table extends RolloverSupport
-			implements ListSelectionListener, TableColumnModelListener, PropertyChangeListener, TableModelListener {
+			implements ListSelectionListener, TableColumnModelListener,
+			PropertyChangeListener, TableModelListener, RowSorterListener {
 		
 		public Table(JTable table, TableCellRenderer rolloverRenderer) {
 			if (table == null || rolloverRenderer == null)
@@ -632,6 +678,10 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 			table.getModel().addTableModelListener(this);
 			table.getSelectionModel().addListSelectionListener(this);
 			table.getColumnModel().addColumnModelListener(this);
+			table.addComponentListener(this);
+			RowSorter<?> sorter = table.getRowSorter();
+			if (sorter != null)
+				sorter.addRowSorterListener(this);
 		}
 		
 		protected void removeListeners() {
@@ -641,6 +691,10 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 			table.getModel().removeTableModelListener(this);
 			table.getSelectionModel().removeListSelectionListener(this);
 			table.getColumnModel().removeColumnModelListener(this);
+			table.removeComponentListener(this);
+			RowSorter<?> sorter = table.getRowSorter();
+			if (sorter != null)
+				sorter.removeRowSorterListener(this);
 		}
 		
 		@Override
@@ -752,6 +806,13 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 				ListSelectionModel newModel = (ListSelectionModel)evt.getNewValue();
 				newModel.addListSelectionListener(this);
 				deferValidate();
+			} else if (property == "sorter") {
+				RowSorter<?> sorter = (RowSorter<?>)evt.getOldValue();
+				if (sorter != null)
+					sorter.removeRowSorterListener(this);
+				sorter = (RowSorter<?>)evt.getOldValue();
+				if (sorter != null)
+					sorter.addRowSorterListener(this);
 			} else if (property == "enabled") {
 				setEnabled((Boolean)evt.getNewValue());
 			}
@@ -772,28 +833,17 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 			}
 		}
 		
-		/**
-		 * Must be used instead of validate for instances where the cause
-		 * of validation comes from an event that the UI may need to process
-		 * first.
-		 * 
-		 * @see #validate()
-		 */
-		public void deferValidate() {
-			if (rolloverRow >= 0 || table.getMousePosition(true) != null) {
-				EventQueue.invokeLater(new Runnable() {
-					public void run() {
-						validate();
-					}
-				});
-			}
+		@Override
+		public void sorterChanged(RowSorterEvent e) {
+			deferValidate();
+		}
+		
+		@Override
+		protected boolean isMouseOverComponent() {
+			return rolloverRow >= 0 || table.getMousePosition(true) != null;
 		}
 
-		/**
-		 * Validates the current rollover state/component.
-		 * 
-		 * @see #deferValidate()
-		 */
+		@Override
 		public void validate() {
 			Point pt = table.getMousePosition(true);
 			if (pt != null) {
@@ -817,5 +867,5 @@ public class RolloverSupport extends MouseAdapter implements AWTEventListener {
 	private static void repaint(Container parent, Component c) {
 		parent.repaint(c.getX(), c.getY(), c.getWidth(), c.getHeight());
 	}
-	
+
 }
