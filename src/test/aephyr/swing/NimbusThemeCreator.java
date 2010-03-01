@@ -45,6 +45,17 @@ public class NimbusThemeCreator implements
 		throw new IllegalStateException();
 	}
 	
+
+	JButton update;
+	JCheckBox autoUpdate;
+	JTable primaryTable;
+	JTable secondaryTable;
+	JTable otherTable;
+	JComboBox keyFilter;
+	JComboBox keyFilterMethod;
+	JComboBox typeFilter;
+
+	
 	private JComponent createBody() {
 		UIDefaults def = UIManager.getLookAndFeel().getDefaults();
 		List<String> primary = new ArrayList<String>();
@@ -98,8 +109,8 @@ public class NimbusThemeCreator implements
 		keyFilter.setToolTipText("Filter Key Column");
 		keyFilter.setEditable(true);
 		keyFilter.addActionListener(this);
-		keyFilterType = new JComboBox(new Object[]{"Starts With","Ends With","Contains","Regex"});
-		keyFilterType.addActionListener(this);
+		keyFilterMethod = new JComboBox(new Object[]{"Starts With","Ends With","Contains","Regex"});
+		keyFilterMethod.addActionListener(this);
 		Object[] types = Type.values();
 		Object[] typeArray = new Object[types.length+1];
 		System.arraycopy(types, 0, typeArray, 1, types.length);
@@ -138,7 +149,7 @@ public class NimbusThemeCreator implements
 		
 		JPanel filters = new JPanel(new FiltersLayout());
 		filters.add(keyFilter);
-		filters.add(keyFilterType);
+		filters.add(keyFilterMethod);
 		filters.add(typeFilter);
 		otherTable.getColumnModel().getColumn(0).addPropertyChangeListener(this);
 		
@@ -250,27 +261,21 @@ public class NimbusThemeCreator implements
 		JSpinner spinner2 = disabled(new JSpinner(new SpinnerNumberModel(100, 0, Short.MAX_VALUE, 100)));
 		JSpinner spinner3 = new JSpinner(new SpinnerDateModel());
 		JSpinner spinner4 = disabled(new JSpinner(new SpinnerDateModel()));
-		JSpinner spinner5 = new JSpinner(new SpinnerListModel(Type.values()));
-		JSpinner spinner6 = disabled(new JSpinner(new SpinnerListModel(Type.values())));
-		JComboBox combo1 = new JComboBox(Type.values());
-		JComboBox combo2 = disabled(new JComboBox(Type.values()));
-		JComboBox combo3 = new JComboBox(Type.values());
+		Type[] values = Type.values();
+		JSpinner spinner5 = new JSpinner(new SpinnerListModel(values));
+		JSpinner spinner6 = disabled(new JSpinner(new SpinnerListModel(values)));
+		JComboBox combo1 = new JComboBox(values);
+		JComboBox combo2 = disabled(new JComboBox(values));
+		JComboBox combo3 = new JComboBox(values);
 		combo3.setEditable(true);
-		JComboBox combo4 = disabled(new JComboBox(Type.values()));
+		JComboBox combo4 = disabled(new JComboBox(values));
 		combo4.setEditable(true);
-		JProgressBar prog1 = new JProgressBar();
-		JProgressBar prog2 = new JProgressBar();
-		prog2.setValue(50);
-		JProgressBar prog3 = new JProgressBar();
-		prog3.setValue(100);
-		JProgressBar progA = new JProgressBar();
-		progA.setStringPainted(true);
-		JProgressBar progB = new JProgressBar();
-		progB.setStringPainted(true);
-		progB.setValue(50);
-		JProgressBar progC = new JProgressBar();
-		progC.setStringPainted(true);
-		progC.setValue(100);
+		JProgressBar prog1 = progress(0, false);
+		JProgressBar prog2 = progress(50, false);
+		JProgressBar prog3 = progress(100, false);
+		JProgressBar progA = progress(0, true);
+		JProgressBar progB = progress(50, true);
+		JProgressBar progC = progress(100, true);
 		final JProgressBar indeterminate = new JProgressBar();
 		indeterminate.setIndeterminate(true);
 		JCheckBox hide = new JCheckBox("Hide Indeterminate Progress Bar:", false);
@@ -306,48 +311,27 @@ public class NimbusThemeCreator implements
 						.addComponent(indeterminate))
 				.addGap(3));
 		layout.setVerticalGroup(layout.createSequentialGroup()
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(label1).addComponent(text1))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(label2).addComponent(text2))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(toggle1).addComponent(button1))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(toggle2).addComponent(button2))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(toggle3).addComponent(spinner1))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(toggle4).addComponent(spinner2))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(combo1).addComponent(spinner3))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(combo2).addComponent(spinner4))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(combo3).addComponent(spinner5))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(combo4).addComponent(spinner6))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(radio1).addComponent(check1))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(radio2).addComponent(check2))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(radio3).addComponent(check3))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(radio4).addComponent(check4))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(slider1).addComponent(slider2))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(slider3).addComponent(slider4))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(slider5).addComponent(slider6))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(prog1).addComponent(progA))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(prog2).addComponent(progB))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(prog3).addComponent(progC))
-				.addGroup(layout.createBaselineGroup(false, true)
-						.addComponent(hide).addComponent(indeterminate)));
+				.addGroup(baseline(layout, label1, text1))
+				.addGroup(baseline(layout, label2, text2))
+				.addGroup(baseline(layout, toggle1, button1))
+				.addGroup(baseline(layout, toggle2, button2))
+				.addGroup(baseline(layout, toggle3, spinner1))
+				.addGroup(baseline(layout, toggle4, spinner2))
+				.addGroup(baseline(layout, combo1, spinner3))
+				.addGroup(baseline(layout, combo2, spinner4))
+				.addGroup(baseline(layout, combo3, spinner5))
+				.addGroup(baseline(layout, combo4, spinner6))
+				.addGroup(baseline(layout, radio1, check1))
+				.addGroup(baseline(layout, radio2, check2))
+				.addGroup(baseline(layout, radio3, check3))
+				.addGroup(baseline(layout, radio4, check4))
+				.addGroup(baseline(layout, slider1, slider2))
+				.addGroup(baseline(layout, slider3, slider4))
+				.addGroup(baseline(layout, slider5, slider6))
+				.addGroup(baseline(layout, prog1, progA))
+				.addGroup(baseline(layout, prog2, progB))
+				.addGroup(baseline(layout, prog3, progC))
+				.addGroup(baseline(layout, hide, indeterminate)));
 
 					
 		JTabbedPane tabs = new JTabbedPane();
@@ -357,15 +341,32 @@ public class NimbusThemeCreator implements
 		return tabs;
 	}
 	
-	JButton update;
-	JCheckBox autoUpdate;
-	JTable primaryTable;
-	JTable secondaryTable;
-	JTable otherTable;
-	JComboBox keyFilter;
-	JComboBox keyFilterType;
-	JComboBox typeFilter;
-
+	private static GroupLayout.ParallelGroup baseline(GroupLayout l, Component a, Component b) {
+		return l.createBaselineGroup(false, true).addComponent(a).addComponent(b);
+	}
+	
+	private static JProgressBar progress(int value, boolean paint) {
+		JProgressBar bar = new JProgressBar();
+		bar.setValue(value);
+		bar.setStringPainted(paint);
+		return bar;
+	}
+	
+	private static JSlider tickedSlider(boolean paintLabels) {
+		JSlider s = new JSlider(0, 100);
+		s.setMajorTickSpacing(25);
+		s.setMinorTickSpacing(5);
+		s.setPaintTicks(true);
+		s.setPaintLabels(paintLabels);
+		return s;
+	}
+	
+	
+	private static <T extends JComponent> T disabled(T c) {
+		c.setEnabled(false);
+		return c;
+	}
+	
 	private class FiltersLayout implements LayoutManager {
 
 		@Override
@@ -375,28 +376,32 @@ public class NimbusThemeCreator implements
 		public void layoutContainer(Container parent) {
 			TableColumnModel mdl = otherTable.getColumnModel();
 			int cw = mdl.getColumn(0).getWidth();
-			Dimension size = keyFilterType.getPreferredSize();
-			int kftw = size.width;
-			int kfw = cw - kftw - 10;
+			Dimension size = keyFilterMethod.getPreferredSize();
+			int kfmw = size.width;
+			int kfw = cw - kfmw - 10;
 			if (kfw < 100) {
 				kfw = 100;
-				kftw = cw - 110;
+				kfmw = cw - 110;
 			}
 			keyFilter.setBounds(0, 0, kfw, size.height);
-			keyFilterType.setBounds(kfw, 0, kftw, size.height);
+			keyFilterMethod.setBounds(kfw, 0, kfmw, size.height);
 			size = typeFilter.getPreferredSize();
 			typeFilter.setBounds(cw, 0, size.width, size.height);
 		}
 
 		@Override
 		public Dimension minimumLayoutSize(Container parent) {
-			return new Dimension(0, 0);
+			return size(300);
 		}
 
 		@Override
 		public Dimension preferredLayoutSize(Container parent) {
+			return size(TABLE_WIDTH);
+		}
+		
+		private Dimension size(int width) {
 			Dimension size = keyFilter.getPreferredSize();
-			size.width = TABLE_WIDTH;
+			size.width = width;
 			return size;
 		}
 
@@ -476,21 +481,6 @@ public class NimbusThemeCreator implements
 	    
 	}
 	
-	private static JSlider tickedSlider(boolean paintLabels) {
-		JSlider s = new JSlider(0, 100);
-		s.setMajorTickSpacing(25);
-		s.setMinorTickSpacing(5);
-		s.setPaintTicks(true);
-		s.setPaintLabels(paintLabels);
-		return s;
-	}
-	
-	
-	private static <T extends JComponent> T disabled(T c) {
-		c.setEnabled(false);
-		return c;
-	}
-	
 	private static final int TABLE_WIDTH = 500;
 	private static final int VALUE_WIDTH = 100;
 	private static final int DEFAULT_WIDTH = 50;
@@ -548,7 +538,7 @@ public class NimbusThemeCreator implements
 	public void actionPerformed(ActionEvent e) {
 		if (e.getSource() == update) {
 			updateUI();
-		} else if (e.getSource() == keyFilter || e.getSource() == keyFilterType || e.getSource() == typeFilter) {
+		} else if (e.getSource() == keyFilter || e.getSource() == keyFilterMethod || e.getSource() == typeFilter) {
 			updateFilter();
 		}
 	}
@@ -560,11 +550,11 @@ public class NimbusThemeCreator implements
 	}
 	
 	private void updateFilter() {
-		DefaultRowSorter<TableModel,String> sorter = (DefaultRowSorter<TableModel,String>)otherTable.getRowSorter();
+		DefaultRowSorter<TableModel,Object> sorter = (DefaultRowSorter<TableModel,Object>)otherTable.getRowSorter();
 		String key = keyFilter.getSelectedItem().toString();
-		RowFilter<TableModel,String> filter = null;
+		RowFilter<TableModel,Object> filter = null;
 		if (!key.isEmpty()) {
-			Object method = keyFilterType.getSelectedItem();
+			Object method = keyFilterMethod.getSelectedItem();
 			if (method == "Starts With") {
 				filter = RowFilter.regexFilter('^'+Pattern.quote(key), 0);
 			} else if (method == "Ends With") {
@@ -577,8 +567,8 @@ public class NimbusThemeCreator implements
 		}
 		String type = typeFilter.getSelectedItem().toString();
 		if (!type.isEmpty()) {
-			RowFilter<TableModel,String> typeFilter = RowFilter.regexFilter('^'+type+'$', 1);
-			filter = filter == null ? typeFilter : RowFilter.<TableModel,String>andFilter(Arrays.asList(filter, typeFilter));
+			RowFilter<TableModel,Object> typeFilter = RowFilter.regexFilter('^'+type+'$', 1);
+			filter = filter == null ? typeFilter : RowFilter.<TableModel,Object>andFilter(Arrays.asList(filter, typeFilter));
 		}
 		sorter.setRowFilter(filter);
 	}
@@ -596,7 +586,7 @@ public class NimbusThemeCreator implements
 		Dimension(DimensionChooser.class),
 		Object(null);
 		
-		Type(Class<? extends ValueChooser> cls) {
+		private Type(Class<? extends ValueChooser> cls) {
 			chooserClass = cls;
 		}
 		
