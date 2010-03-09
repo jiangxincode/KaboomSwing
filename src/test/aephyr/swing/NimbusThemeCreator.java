@@ -71,14 +71,14 @@ public class NimbusThemeCreator implements ActionListener, ChangeListener,
 				break;
 			case Font:
 				Font font = (Font)entry.getValue();
-				UIManager.put(entry.getKey(), font);
+				UIManager.put(entry.getKey(), font.deriveFont(font.getSize2D()+(rdm.nextBoolean()?1:-1)));
 				break;
 			case Boolean:
 				UIManager.put(entry.getKey(), Boolean.FALSE.equals(entry.getValue()));
 				break;
 			case Integer:
 				Integer i = (Integer)entry.getValue();
-				UIManager.put(entry.getKey(), i+1);
+				UIManager.put(entry.getKey(), i+rdm.nextInt(5));
 			}
 		}
 	}
@@ -136,12 +136,10 @@ public class NimbusThemeCreator implements ActionListener, ChangeListener,
 		}
 		painterKeys = painters.toArray(new String[painters.size()]);
 		Arrays.sort(painterKeys);
-		TableCellRenderer renderer = new UIDefaultsRenderer();
-		TableCellEditor editor = new UIDefaultsEditor();
-		primaryTable = createUITable(false, 0, Type.Color, primary, renderer, editor);
+		primaryTable = createUITable(false, 0, Type.Color, primary);
 		primaryTable.getModel().addTableModelListener(this);
-		secondaryTable = createUITable(false, 0, Type.Color, secondary, renderer, editor);
-		otherTable = createUITable(true, 75, null, other, renderer, editor);
+		secondaryTable = createUITable(false, 0, Type.Color, secondary);
+		otherTable = createUITable(true, 75, null, other);
 		otherTable.setAutoCreateRowSorter(true);
 		DefaultRowSorter<?,?> sorter = (DefaultRowSorter<?,?>)otherTable.getRowSorter();
 		sorter.setSortable(2, false);
@@ -279,7 +277,10 @@ public class NimbusThemeCreator implements ActionListener, ChangeListener,
 		JTextArea area = new JTextArea(10, 40);
 		Exception ex = new Exception("Little something for the Text Components");
 		StringWriter writer = new StringWriter();
-		ex.printStackTrace(new PrintWriter(writer));
+		PrintWriter pw = new PrintWriter(writer);
+		ex.printStackTrace(pw);
+		pw.flush();
+		pw.close();
 		String str = writer.toString();
 		area.setText(str);
 		area.select(0, 0);
@@ -838,7 +839,7 @@ public class NimbusThemeCreator implements ActionListener, ChangeListener,
 		
 	
 	private static JTable createUITable(boolean keyColumnResizable, int typeWidth, Type type,
-			List<String> lst, TableCellRenderer renderer, TableCellEditor editor) {
+			List<String> lst) {
 		String[] keys = lst.toArray(new String[lst.size()]);
 		Arrays.sort(keys);
 		TableModel mdl = type == null ? new UITableModel(keys) : new UITypeTableModel(keys, type, true);
@@ -853,8 +854,8 @@ public class NimbusThemeCreator implements ActionListener, ChangeListener,
 		setWidth(columns.getColumn(1), typeWidth);
 		TableColumn column = columns.getColumn(2);
 		setWidth(column, VALUE_WIDTH);
-		column.setCellRenderer(renderer);
-		column.setCellEditor(editor);
+		column.setCellRenderer(new UIDefaultsRenderer());
+		column.setCellEditor(new UIDefaultsEditor());
 		setWidth(columns.getColumn(3), DEFAULT_WIDTH);
 		return table;
 	}
@@ -966,7 +967,7 @@ public class NimbusThemeCreator implements ActionListener, ChangeListener,
 			JPanel file = new JPanel(new BorderLayout());
 			file.add(titled(createLocation(location, browse), "File Location"), BorderLayout.SOUTH);
 			
-			text = new JTextArea(10, 30);
+			text = new JTextArea(10, 20);
 			
 			tabs = new JTabbedPane();
 			tabs.addTab("Import from File", file);
@@ -999,7 +1000,7 @@ public class NimbusThemeCreator implements ActionListener, ChangeListener,
 				browse.setMultiSelectionEnabled(false);
 				if (browseFile != null)
 					browse.setSelectedFile(browseFile);
-				if (JFileChooser.APPROVE_OPTION == browse.showSaveDialog(null)) {
+				if (JFileChooser.APPROVE_OPTION == browse.showOpenDialog(null)) {
 					browseFile = browse.getSelectedFile();
 					location.setText(browseFile.getPath());
 				}
@@ -1311,9 +1312,7 @@ public class NimbusThemeCreator implements ActionListener, ChangeListener,
 						String style = font.isBold() ? "Font.BOLD" : null;
 						style = font.isItalic() ?
 								style == null ? "Font.ITALIC" : style + " | " + "Font.ITALIC"
-								: null;
-						if (style == null)
-							style = "Font.PLAIN";
+								: "Font.PLAIN";
 						writer.write(style);
 						writer.write(", ");
 						writer.write(font.getSize());
