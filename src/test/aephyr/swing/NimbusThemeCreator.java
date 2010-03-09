@@ -1,5 +1,7 @@
 package test.aephyr.swing;
 
+import java.io.*;
+import java.net.URI;
 import java.util.*;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -11,19 +13,30 @@ import javax.swing.event.*;
 import javax.swing.plaf.ColorUIResource;
 import javax.swing.table.*;
 import javax.swing.GroupLayout.Alignment;
+import javax.tools.JavaCompiler;
+import javax.tools.SimpleJavaFileObject;
+import javax.tools.ToolProvider;
+import javax.tools.JavaCompiler.CompilationTask;
 
-import com.sun.java.swing.Painter;
 
-public class NimbusThemeCreator implements
-		ActionListener, ItemListener, PropertyChangeListener, TableModelListener {
-	
+//import com.sun.java.swing.Painter;
+
+public class NimbusThemeCreator implements ActionListener, ChangeListener,
+		ItemListener, PropertyChangeListener, TableModelListener {
+	private static final int TABLE_WIDTH = 450;
+	private static final int VALUE_WIDTH = 100;
+	private static final int DEFAULT_WIDTH = 50;
+
 	public static void main(String[] args) {
 		SwingUtilities.invokeLater(new Runnable() {
 			public void run() {
 				setNimbusLookAndFeel();
+				//loadRandom();
 				JFrame frame = new JFrame(NimbusThemeCreator.class.getSimpleName());
 				frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-				frame.add(new NimbusThemeCreator().createBody(), BorderLayout.CENTER);
+				NimbusThemeCreator creator = new NimbusThemeCreator();
+				frame.add(creator.createBody(), BorderLayout.CENTER);
+				frame.getRootPane().setDefaultButton(creator.defaultButton);
 				frame.pack();
 				frame.setLocationRelativeTo(null);
 				frame.setVisible(true);
@@ -39,65 +52,96 @@ public class NimbusThemeCreator implements
 					return;
 				}
 			}
+			throw new ClassNotFoundException();
 		} catch (Exception e) {
 			throw new IllegalStateException(e);
 		}
-		throw new IllegalStateException();
 	}
 	
+	private static void loadRandom() {
+		Random rdm = new Random();
+		for (Map.Entry<Object,Object> entry : UIManager.getLookAndFeelDefaults().entrySet()) {
+			Type type = Type.getType(entry.getValue());
+			switch (type) {
+			case Color:
+				UIManager.put(entry.getKey(), new Color(rdm.nextInt(256), rdm.nextInt(256), rdm.nextInt(256)));
+				break;
+			case Insets:
+				UIManager.put(entry.getKey(), new Insets(rdm.nextInt(10), rdm.nextInt(10), rdm.nextInt(10), rdm.nextInt(10)));
+				break;
+			case Font:
+				Font font = (Font)entry.getValue();
+				UIManager.put(entry.getKey(), font);
+				break;
+			case Boolean:
+				UIManager.put(entry.getKey(), Boolean.FALSE.equals(entry.getValue()));
+				break;
+			case Integer:
+				Integer i = (Integer)entry.getValue();
+				UIManager.put(entry.getKey(), i+1);
+			}
+		}
+	}
 
-	JButton update;
-	JCheckBox autoUpdate;
-	JTable primaryTable;
-	JTable secondaryTable;
-	JTable otherTable;
-	JComboBox keyFilter;
-	JComboBox keyFilterMethod;
-	JComboBox typeFilter;
-
+	private JButton update;
+	private JCheckBox autoUpdate;
+	private JTable primaryTable;
+	private JTable secondaryTable;
+	private JTable otherTable;
+	private JComboBox keyFilter;
+	private JComboBox keyFilterMethod;
+	private JComboBox typeFilter;
+	private JButton defaultButton;
 	
-	private JComponent createBody() {
-		UIDefaults def = UIManager.getLookAndFeel().getDefaults();
+
+	private static String[] painterKeys;
+	
+	private NimbusThemeCreator() {
 		List<String> primary = new ArrayList<String>();
 		List<String> secondary = new ArrayList<String>();
 		List<String> other = new ArrayList<String>();
 		Set<String> filters = new HashSet<String>();
-		for (Map.Entry<Object,Object> entry : def.entrySet()) {
-			if (entry.getKey() instanceof String) {
-				String str = (String)entry.getKey();
-				if (Character.isLowerCase(str.charAt(0))) {
-					if (entry.getValue() instanceof Color) {
-						if (entry.getValue() instanceof ColorUIResource) {
-							primary.add(str);
-						} else {
-							secondary.add(str);
-						}
+		List<String> painters = new ArrayList<String>();
+		for (Map.Entry<Object,Object> entry : UIManager.getLookAndFeelDefaults().entrySet()) {
+			if (!(entry.getKey() instanceof String))
+				continue;
+			String str = (String)entry.getKey();
+			if (Character.isLowerCase(str.charAt(0))) {
+				if (entry.getValue() instanceof Color) {
+					if (entry.getValue() instanceof ColorUIResource) {
+						primary.add(str);
 					} else {
-						other.add(str);
+						secondary.add(str);
 					}
 				} else {
-					int i = str.indexOf('.');
-					if (i >= 0) {
-						other.add(str);
-						if (Character.isLetter(str.charAt(0))) {
-							int j = str.indexOf('[');
-							if (j >= 0 && j < i)
-								i = j;
-							j = str.indexOf(':');
-							if (j >= 0 && j < i)
-								i = j;
-							filters.add(str.substring(0, i));
-						}
-					}
+					other.add(str);
+				}
+			} else {
+				if (str.endsWith("Painter"))
+					painters.add(str);
+				int i = str.indexOf('.');
+				if (i < 0)
+					continue;
+				other.add(str);
+				if (Character.isLetter(str.charAt(0))) {
+					int j = str.indexOf('[');
+					if (j >= 0 && j < i)
+						i = j;
+					j = str.indexOf(':');
+					if (j >= 0 && j < i)
+						i = j;
+					filters.add(str.substring(0, i));
 				}
 			}
 		}
+		painterKeys = painters.toArray(new String[painters.size()]);
+		Arrays.sort(painterKeys);
 		TableCellRenderer renderer = new UIDefaultsRenderer();
 		TableCellEditor editor = new UIDefaultsEditor();
-		primaryTable = createUITable(0, "Color", primary, renderer, editor);
+		primaryTable = createUITable(false, 0, Type.Color, primary, renderer, editor);
 		primaryTable.getModel().addTableModelListener(this);
-		secondaryTable = createUITable(0, "Color", secondary, renderer, editor);
-		otherTable = createUITable(75, "Value", other, renderer, editor);
+		secondaryTable = createUITable(false, 0, Type.Color, secondary, renderer, editor);
+		otherTable = createUITable(true, 75, null, other, renderer, editor);
 		otherTable.setAutoCreateRowSorter(true);
 		DefaultRowSorter<?,?> sorter = (DefaultRowSorter<?,?>)otherTable.getRowSorter();
 		sorter.setSortable(2, false);
@@ -124,25 +168,27 @@ public class NimbusThemeCreator implements
 		autoUpdate = new JCheckBox("Auto Update", false);
 		autoUpdate.addItemListener(this);
 		
-		return createBodyLayout();
+		defaultButton = new JButton("Default");
+		defaultButton.setDefaultCapable(true);
+
 	}
 	
 	
-	private JComponent createBodyLayout() {
-		JScrollPane primary = new JScrollPane(primaryTable);
-		primary.setBorder(BorderFactory.createTitledBorder("Primary"));
-		JScrollPane secondary = new JScrollPane(secondaryTable);
-		secondary.setBorder(BorderFactory.createTitledBorder("Secondary"));
-		// GroupLayout is used because vertical Box behaves poorly (what a surprise)
-		// when the horizontal scroll bar appears/disappears for the tables
-		JPanel colors = new JPanel(null);
-		GroupLayout layout = new GroupLayout(colors);
-		colors.setLayout(layout);
-		layout.setHorizontalGroup(layout.createParallelGroup()
-				.addComponent(primary).addComponent(secondary));
-		layout.setVerticalGroup(layout.createSequentialGroup()
-				.addComponent(primary).addComponent(secondary));
-
+	JComponent createBody() {
+		JScrollPane primary = titled(new JScrollPane(
+				primaryTable, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
+				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), "Primary");
+		JScrollPane secondary = titled(new JScrollPane(
+				secondaryTable, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
+				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), "Secondary");
+		
+		JPanel colors = new JPanel(new StackedTableLayout(3, 10, true));
+		colors.add(primary);
+		colors.add(secondary);
+		Dimension size = new Dimension(TABLE_WIDTH, primaryTable.getRowHeight()*20);
+		otherTable.setPreferredScrollableViewportSize(size);
+		
+		
 		JScrollPane other = new JScrollPane(otherTable);
 		other.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
 		JPanel otherPanel = new JPanel(null);
@@ -153,70 +199,168 @@ public class NimbusThemeCreator implements
 		filters.add(typeFilter);
 		otherTable.getColumnModel().getColumn(0).addPropertyChangeListener(this);
 		
-		layout = new GroupLayout(otherPanel);
+		GroupLayout layout = new GroupLayout(otherPanel);
 		otherPanel.setLayout(layout);
 		layout.setHorizontalGroup(layout.createSequentialGroup()
 				.addGap(2)
 				.addGroup(layout.createParallelGroup()
 						.addComponent(filters).addComponent(other)));
-		final int sz = GroupLayout.PREFERRED_SIZE;
+		final int prf = GroupLayout.PREFERRED_SIZE;
 		layout.setVerticalGroup(layout.createSequentialGroup()
-				.addGap(2).addComponent(other).addComponent(filters, sz, sz, sz));
+				.addGap(2).addComponent(other).addComponent(filters, prf, prf, prf));
 
 		JTabbedPane options = new JTabbedPane();
 		options.addTab("UI Base", colors);
 		options.addTab("UI Controls", otherPanel);
 		JComponent preview = createPreview();
 		
+		JButton imp = new JButton("Import");
+		imp.addActionListener(this);
+		JButton exp = new JButton("Export");
+		exp.addActionListener(this);
+		
 		JPanel body = new JPanel(null);
 		layout = new GroupLayout(body);
 		body.setLayout(layout);
 		layout.setHorizontalGroup(layout.createSequentialGroup()
-				.addGroup(layout.createParallelGroup()
+				.addGroup(layout.createParallelGroup(Alignment.LEADING, false)
 						.addComponent(options)
 						.addGroup(layout.createSequentialGroup()
 								.addGap(4)
-								.addComponent(update)
-								.addComponent(autoUpdate)))
+								.addComponent(imp).addComponent(exp)
+								.addGap(0, 100, Short.MAX_VALUE)
+								.addComponent(autoUpdate).addGap(5).addComponent(update)))
 				.addComponent(preview));
 		layout.setVerticalGroup(layout.createParallelGroup()
 				.addGroup(layout.createSequentialGroup()
 						.addComponent(options)
 						.addGroup(layout.createBaselineGroup(false, true)
-								.addComponent(update)
-								.addComponent(autoUpdate))
+								.addComponent(imp).addComponent(exp)
+								.addComponent(update).addComponent(autoUpdate))
 						.addGap(4))
 				.addComponent(preview));
 		return body;
 	}
 	
-	private JComponent createPreview() {
-		List<String> keys = new ArrayList<String>();
-		String prototype = null;
-		for (Object key : UIManager.getLookAndFeel().getDefaults().keySet()) {
-			if (key instanceof String) {
-				String str = (String)key;
-				if (prototype == null && str.length() > 50 && str.length() < 60)
-					prototype = str;
-				keys.add(str);
-			}
-		}
-		String[] array = keys.toArray(new String[keys.size()]);
-		Arrays.sort(array);
-		JList list = new JList(array);
-		list.setPrototypeCellValue(prototype);
+	
+	private static String getPrototypeString(int chars) {
+		char[] c = new char[chars];
+		Arrays.fill(c, 'w');
+		return new String(c);
+	}
+	
+	private void createCollections() {
+		JList list = new JList(painterKeys);
+		list.setPrototypeCellValue(getPrototypeString(50));
 		JTree tree = new JTree();
 		for (int row=0; row<tree.getRowCount(); row++)
 			tree.expandRow(row);
-		JSplitPane collections = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, new JScrollPane(list), new JScrollPane(tree));
-		
+		TableColumnModel columns = new DefaultTableColumnModel();
+		TableColumn nameColumn = new TableColumn(0, 300);
+		nameColumn.setHeaderValue("Name");
+		columns.addColumn(nameColumn);
+		TableColumn typeColumn = new TableColumn(1, 100);
+		typeColumn.setHeaderValue("Type");
+		columns.addColumn(typeColumn);
+		JTable table = new JTable(otherTable.getModel(), columns);
+		table.setPreferredScrollableViewportSize(new Dimension(400, table.getRowHeight()*15));
+		JSplitPane hor = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
+				titled(new JScrollPane(tree), "JTree"),
+				titled(new JScrollPane(list), "JList"));
+		collections.setTopComponent(hor);
+		collections.setBottomComponent(titled(new JScrollPane(table), JTable.class.getSimpleName()));
+		collections.validate();
+		collections.setDividerLocation(0.55);
+		hor.setDividerLocation(0.35);
+	}
+	
+	
+	private void createTexts() {
 		JTextArea area = new JTextArea(10, 40);
-		JTextPane editor = new JTextPane();
-		JSplitPane textTab = new JSplitPane(JSplitPane.VERTICAL_SPLIT, new JScrollPane(area), new JScrollPane(editor));
-		
-		JLabel label1 = new JLabel("Hover Here for Tooltip:");
+		Exception ex = new Exception("Little something for the Text Components");
+		StringWriter writer = new StringWriter();
+		ex.printStackTrace(new PrintWriter(writer));
+		String str = writer.toString();
+		area.setText(str);
+		area.select(0, 0);
+		final JEditorPane editor = new JEditorPane();
+		editor.setText(str);
+		texts.setTopComponent(titled(new JScrollPane(area), JTextArea.class.getSimpleName()));
+		texts.setBottomComponent(titled(new JScrollPane(editor), JEditorPane.class.getSimpleName()));
+		texts.setDividerLocation(0.5);
+	}
+	
+	private void createOptions() {
+		options.add(createOptionPane("Plain Message", JOptionPane.PLAIN_MESSAGE));
+		options.add(createOptionPane("Error Message", JOptionPane.ERROR_MESSAGE));
+		options.add(createOptionPane("Information Message", JOptionPane.INFORMATION_MESSAGE));
+		options.add(createOptionPane("Warning Message", JOptionPane.WARNING_MESSAGE));
+		options.add(createOptionPane("Want to do something?", JOptionPane.QUESTION_MESSAGE));
+		JComboBox choiceCombo = new JComboBox(Type.values());
+		options.add(titled(new JOptionPane(choiceCombo,
+				JOptionPane.QUESTION_MESSAGE, JOptionPane.OK_CANCEL_OPTION), "Question Message"));
+
+	}
+	
+	private void createDesktop() {
+		final JDesktopPane desktop = new JDesktopPane();
+		JPopupMenu popup = new JPopupMenu();
+		ActionListener al = new ActionListener() {
+			public void actionPerformed(ActionEvent e) {
+				JInternalFrame frame = new JInternalFrame(
+						JInternalFrame.class.getSimpleName(), true, true, true, true);
+				frame.setVisible(true);
+				frame.setBounds(50, 100, 600, 500);
+				desktop.add(frame);
+				desktop.moveToFront(frame);
+				desktop.setSelectedFrame(frame);
+			}
+		};
+		al.actionPerformed(null);
+		popup.add("New Internal Frame").addActionListener(al);
+		desktop.setComponentPopupMenu(popup);
+		this.desktop.add(desktop, BorderLayout.CENTER);
+	}
+	
+	private void createFileChooser() {
+		fileChooser.add(titled(
+				new JFileChooser(), JFileChooser.class.getSimpleName()));
+	}
+	
+	private void createColorChooser() {
+		colorChooser.add((titled(
+				new JColorChooser(), JColorChooser.class.getSimpleName())));
+	}
+	
+	public void stateChanged(ChangeEvent e) {
+		JTabbedPane tabs = (JTabbedPane)e.getSource();
+		int idx = tabs.getSelectedIndex();
+		if (idx >= 0 && !created[idx]) {
+			created[idx] = true;
+			switch (idx) {
+			case 1: createCollections(); break;
+			case 2: createOptions(); break;
+			case 3: createTexts(); break;
+			case 4: createFileChooser(); break;
+			case 5: createColorChooser(); break;
+			case 6: createDesktop(); break;
+			}
+			
+		}
+	}
+	
+	private boolean[] created;
+	private JSplitPane collections;
+	private JPanel options;
+	private JSplitPane texts;
+	private JPanel fileChooser;
+	private JPanel colorChooser;
+	private JPanel desktop;
+
+	private JComponent createPreview() {
+		JLabel label1 = new JLabel("Hover Here for Tooltip");
 		label1.setToolTipText("Tooltip");
-		JLabel label2 = disabled(new JLabel("Disabled Label:"));
+		JLabel label2 = disabled(new JLabel("Disabled"));
 		JButton button1 = new JButton("Button");
 		JButton button2 = disabled(new JButton("Disabled"));
 		JToggleButton toggle1 = new JToggleButton("Toggle", true);
@@ -248,15 +392,15 @@ public class NimbusThemeCreator implements
 		popup.add(new JCheckBoxMenuItem("Check", true));
 		popup.add(new JCheckBoxMenuItem("Check", false));
 		popup.add(disabled(new JCheckBoxMenuItem("Disabled", false)));
+		JTextField text1 = new JTextField("Click Here for Popup");
+		text1.setComponentPopupMenu(popup);
+		JTextField text2 = disabled(new JTextField("Disabled"));
 		JSlider slider1 = new JSlider();
 		JSlider slider2 = disabled(new JSlider());
 		JSlider slider3 = tickedSlider(false);
 		JSlider slider4 = disabled(tickedSlider(false));
 		JSlider slider5 = tickedSlider(true);
 		JSlider slider6 = disabled(tickedSlider(true));
-		JTextField text1 = new JTextField("Click Here for Popup");
-		text1.setComponentPopupMenu(popup);
-		JTextField text2 = disabled(new JTextField("Disabled TextField"));
 		JSpinner spinner1 = new JSpinner(new SpinnerNumberModel(100, 0, Short.MAX_VALUE, 100));
 		JSpinner spinner2 = disabled(new JSpinner(new SpinnerNumberModel(100, 0, Short.MAX_VALUE, 100)));
 		JSpinner spinner3 = new JSpinner(new SpinnerDateModel());
@@ -279,6 +423,7 @@ public class NimbusThemeCreator implements
 		final JProgressBar indeterminate = new JProgressBar();
 		indeterminate.setIndeterminate(true);
 		JCheckBox hide = new JCheckBox("Hide Indeterminate Progress Bar:", false);
+		hide.setHorizontalAlignment(SwingConstants.RIGHT);
 		hide.addItemListener(new ItemListener() {
 			public void itemStateChanged(ItemEvent evt) {
 				indeterminate.setVisible(evt.getStateChange() != ItemEvent.SELECTED);
@@ -288,61 +433,101 @@ public class NimbusThemeCreator implements
 		GroupLayout layout = new GroupLayout(other);
 		other.setLayout(layout);
 		final int prf = GroupLayout.PREFERRED_SIZE;
-		layout.setHorizontalGroup(layout.createSequentialGroup()
-				.addGroup(layout.createParallelGroup()
-						.addComponent(label1, Alignment.TRAILING).addComponent(label2, Alignment.TRAILING)
-						.addComponent(toggle1).addComponent(toggle2).addComponent(toggle3).addComponent(toggle4)
-						.addComponent(combo1, prf, prf, prf).addComponent(combo2, prf, prf, prf)
-						.addComponent(combo3, prf, prf, prf).addComponent(combo4, prf, prf, prf)
-						.addComponent(check1).addComponent(check2).addComponent(check3).addComponent(check4)
-						.addComponent(slider1).addComponent(slider3).addComponent(slider5)
-						.addComponent(prog1).addComponent(prog2).addComponent(prog3)
-						.addComponent(hide, Alignment.TRAILING))
-				.addGap(3)
-				.addGroup(layout.createParallelGroup()
-						.addComponent(text1).addComponent(text2)
-						.addComponent(button1).addComponent(button2)
-						.addComponent(spinner1, prf, prf, prf).addComponent(spinner2, prf, prf, prf)
-						.addComponent(spinner3, prf, prf, prf).addComponent(spinner4, prf, prf, prf)
-						.addComponent(spinner5).addComponent(spinner6)
-						.addComponent(radio1).addComponent(radio2).addComponent(radio3).addComponent(radio4)
-						.addComponent(slider2).addComponent(slider4).addComponent(slider6)
-						.addComponent(progA).addComponent(progB).addComponent(progC)
-						.addComponent(indeterminate))
-				.addGap(3));
-		layout.setVerticalGroup(layout.createSequentialGroup()
-				.addGroup(baseline(layout, label1, text1))
-				.addGroup(baseline(layout, label2, text2))
-				.addGroup(baseline(layout, toggle1, button1))
-				.addGroup(baseline(layout, toggle2, button2))
-				.addGroup(baseline(layout, toggle3, spinner1))
-				.addGroup(baseline(layout, toggle4, spinner2))
-				.addGroup(baseline(layout, combo1, spinner3))
-				.addGroup(baseline(layout, combo2, spinner4))
-				.addGroup(baseline(layout, combo3, spinner5))
-				.addGroup(baseline(layout, combo4, spinner6))
-				.addGroup(baseline(layout, radio1, check1))
-				.addGroup(baseline(layout, radio2, check2))
-				.addGroup(baseline(layout, radio3, check3))
-				.addGroup(baseline(layout, radio4, check4))
-				.addGroup(baseline(layout, slider1, slider2))
-				.addGroup(baseline(layout, slider3, slider4))
-				.addGroup(baseline(layout, slider5, slider6))
-				.addGroup(baseline(layout, prog1, progA))
-				.addGroup(baseline(layout, prog2, progB))
-				.addGroup(baseline(layout, prog3, progC))
-				.addGroup(baseline(layout, hide, indeterminate)));
 
-					
+		JPanel toggles = createPanel(JToggleButton.class, 2, 0,
+				toggle1, toggle2, toggle3, toggle4);
+		JPanel buttons = createPanel(JButton.class, 1, 0,
+				defaultButton, button1, button2);
+		JPanel combos = createPanel(JComboBox.class, 0, 2,
+				combo1, combo2, combo3, combo4);
+		JPanel spinners = createPanel(JSpinner.class, 0, 2,
+				spinner1, spinner2, spinner3, spinner4, spinner5, spinner6);
+		JPanel checks = createPanel(JCheckBox.class, 2, 0,
+				check1, check2, check3, check4);
+		JPanel radios = createPanel(JRadioButton.class, 2, 0,
+				radio1, radio2, radio3, radio4);
+		JPanel progs = createPanel(JProgressBar.class, 0, 2,
+				prog1, progA, prog2, progB, prog3, progC, hide, indeterminate);
+		JPanel texts = createPanel(JTextField.class, 0, 1, text1, text2);
+		JPanel labels = createPanel(JLabel.class, 1, 0, label1, label2);
+		JPanel sliders = createPanel(JSlider.class, 0, 2,
+				slider1, slider2, slider3, slider4, slider5, slider6);
+		layout.linkSize(SwingConstants.HORIZONTAL, combos, spinners);
+		layout.setHorizontalGroup(layout.createParallelGroup()
+				.addGroup(layout.createSequentialGroup()
+						.addGroup(layout.createParallelGroup()
+								.addComponent(buttons, prf, prf, prf)
+								.addComponent(toggles, prf, prf, prf)
+								.addGroup(layout.createSequentialGroup()
+										.addGroup(layout.createParallelGroup()
+												.addComponent(radios)
+												.addComponent(checks))
+										.addGap(0, 0, 20)))
+						.addGroup(layout.createParallelGroup()
+								.addComponent(texts)
+								.addComponent(combos, prf, prf, prf)
+								.addComponent(spinners, prf, prf, prf)))
+				.addComponent(labels)
+				.addComponent(sliders)
+				.addComponent(progs));
+		layout.setVerticalGroup(layout.createSequentialGroup()
+				.addGroup(layout.createParallelGroup()
+						.addGroup(layout.createSequentialGroup()
+								.addComponent(buttons, prf, prf, prf)
+								.addGap(0, 0, Short.MAX_VALUE)
+								.addComponent(toggles, prf, prf, prf)
+								.addGap(0, 0, Short.MAX_VALUE)
+								.addComponent(radios, prf, prf, prf)
+								.addGap(0, 0, Short.MAX_VALUE)
+								.addComponent(checks, prf, prf, prf))
+						.addGroup(layout.createSequentialGroup()
+								.addComponent(texts, prf, prf, prf)
+								.addGap(0, 0, Short.MAX_VALUE)
+								.addComponent(combos, prf, prf, prf)
+								.addGap(0, 0, Short.MAX_VALUE)
+								.addComponent(spinners, prf, prf, prf)))
+				.addGap(0, 0, Short.MAX_VALUE)
+				.addComponent(labels, prf, prf, prf)
+				.addGap(0, 0, Short.MAX_VALUE)
+				.addComponent(sliders, prf, prf, prf)
+				.addGap(0, 0, Short.MAX_VALUE)
+				.addComponent(progs, prf, prf, prf));
+		
+		this.texts = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+		collections = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+		options = new JPanel(new GridLayout(0, 2));
+		desktop = new JPanel(new BorderLayout());
+		fileChooser = new JPanel(new GridBagLayout());
+		colorChooser = new JPanel(new GridBagLayout());
+		
 		JTabbedPane tabs = new JTabbedPane();
 		tabs.addTab("Controls", other);
 		tabs.addTab("Collections", collections);
-		tabs.addTab("Text", textTab);
+		tabs.addTab("Options", centered(options));
+		tabs.addTab("Texts", this.texts);
+		tabs.addTab("File Chooser", fileChooser);
+		tabs.addTab("Color Chooser", colorChooser);
+		tabs.addTab("Desktop Pane", desktop);
+		created = new boolean[tabs.getTabCount()];
+		created[0] = true;
+		tabs.addChangeListener(this);
 		return tabs;
 	}
 	
-	private static GroupLayout.ParallelGroup baseline(GroupLayout l, Component a, Component b) {
-		return l.createBaselineGroup(false, true).addComponent(a).addComponent(b);
+	private static JPanel centered(JComponent c) {
+		JPanel panel = new JPanel(new GridBagLayout());
+		panel.add(c);
+		return panel;
+	}
+	
+	private static JOptionPane createOptionPane(String message, int type) {
+		JOptionPane pane = new JOptionPane(message, type);
+		String title = message;
+		if (type == JOptionPane.QUESTION_MESSAGE) {
+			title = "Question Message";
+			pane.setOptionType(JOptionPane.YES_NO_CANCEL_OPTION);
+		}
+		return titled(pane, title);
 	}
 	
 	private static JProgressBar progress(int value, boolean paint) {
@@ -367,6 +552,179 @@ public class NimbusThemeCreator implements
 		return c;
 	}
 	
+	private static <T extends JComponent> T titled(T c, String title) {
+		c.setBorder(BorderFactory.createTitledBorder(title));
+		return c;
+	}
+	
+	private static JPanel createPanel(Class<?> cls, int rows, int cols, Component...components) {
+		JPanel panel = new JPanel(new GridLayout(rows, cols, 5, 0));
+		for (Component c : components)
+			panel.add(c);
+		return titled(panel, cls.getSimpleName());
+	}
+	
+	
+	
+
+	private class StackedTableLayout implements LayoutManager {
+		
+		StackedTableLayout() {
+			this(5, 15, true);
+		}
+		
+		StackedTableLayout(int minRows, int prefRows, boolean fillHeight) {
+			this.minRows = minRows;
+			this.prefRows = prefRows;
+			this.fillHeight = fillHeight;
+		}
+		
+		int minRows;
+		int prefRows;
+		boolean fillHeight;
+
+		@Override
+		public void addLayoutComponent(String name, Component comp) {}
+		
+		private JScrollPane[] scrollers(Container parent) {
+			synchronized (parent.getTreeLock()) {
+				int n = parent.getComponentCount();
+				if (n == 0)
+					return null;
+				JScrollPane[] scrollers = new JScrollPane[n];
+				while (--n>=0)
+					scrollers[n] = (JScrollPane)parent.getComponent(n);
+				return scrollers;
+			}
+		}
+
+		@Override
+		public void layoutContainer(Container parent) {
+			JScrollPane[] scrollers = scrollers(parent);
+			if (scrollers == null)
+				return;
+			int[] max = new int[scrollers.length];
+			int[] rowHeights = new int[scrollers.length];
+			int[] yInsets = new int[scrollers.length];
+			int maxTot = 0;
+			Insets insets = parent.getInsets();
+			int y = insets.top;
+			int x = insets.left;
+			int height = parent.getHeight() - y - insets.bottom;
+			int width = parent.getWidth() - x - insets.right;
+			for (int i=scrollers.length; --i>=0;) {
+				JTable table = (JTable)scrollers[i].getViewport().getView();
+				Dimension size = scrollers[i].getPreferredSize();
+				int h = size.height;
+				size = table.getPreferredScrollableViewportSize();
+				yInsets[i] = h - size.height;
+				rowHeights[i] = table.getRowHeight();
+				max[i] = table.getRowHeight() * table.getRowCount();
+				maxTot += max[i] + yInsets[i];
+			}
+			if (maxTot <= height) {
+				for (int i=0; i<scrollers.length; i++) {
+					int h = max[i]+yInsets[i];
+					scrollers[i].setBounds(x, y, width, h);
+					y += h;
+				}
+			} else {
+				int count = max.length;
+				int availableHeight = height;
+				while (count > 1) {
+					int min = Integer.MAX_VALUE;
+					int minIdx = -1;
+					for (int i=max.length; --i>=0;) {
+						if (max[i] >= 0 && max[i]+yInsets[i] < min) {
+							min = max[i]+yInsets[i];
+							minIdx = i;
+						}
+					}
+					if (min > availableHeight/count)
+						break;
+					availableHeight -= min;
+					max[minIdx] = -min;
+					count--;
+				}
+				int rem = availableHeight % count;
+				availableHeight /= count;
+				for (int i=scrollers.length; --i>=0;) {
+					int h = max[i];
+					if (h < 0)
+						continue;
+					if (h+yInsets[i] > availableHeight) {
+						h = availableHeight;
+						int r = (h - yInsets[i]) % rowHeights[i];
+						h -= r;
+						rem += r;
+						max[i] = h;
+					} else {
+						max[i] = -h - yInsets[i];
+					}
+				}
+				for (int i=0; i<scrollers.length; i++) {
+					int h = max[i];
+					if (h < 0) {
+						h = -h;
+					} else {
+						if (rem > rowHeights[i]) {
+							h += rowHeights[i];
+							rem -= rowHeights[i];
+						}
+					}
+					scrollers[i].setBounds(x, y, width, h);
+					y += h;
+				}
+			}
+			if (fillHeight) {
+				JScrollPane s = scrollers[scrollers.length-1];
+				s.setSize(width, s.getHeight()+height-y);
+			}
+		}
+
+
+		@Override
+		public Dimension minimumLayoutSize(Container parent) {
+			return size(parent, true);
+		}
+
+		@Override
+		public Dimension preferredLayoutSize(Container parent) {
+			return size(parent, false);
+		}
+		
+		private Dimension size(Container parent, boolean min) {
+			JScrollPane[] scrollers = scrollers(parent);
+			if (scrollers == null)
+				return new Dimension(0, 0);
+			Insets insets = parent.getInsets();
+			int height = insets.top + insets.bottom;
+			int xInsets = insets.left + insets.right;
+			int maxWidth = 0;
+			int rows = min ? minRows : prefRows;
+			for (int i=scrollers.length; --i>=0;) {
+				JTable table = (JTable)scrollers[i].getViewport().getView();
+				Dimension size = scrollers[i].getPreferredSize();
+				int w = size.width;
+				int h = size.height;
+				size = table.getPreferredScrollableViewportSize();
+				height += h - size.height + 
+					Math.min(rows, table.getRowCount()) * table.getRowHeight();
+				w -= size.width;
+				size = min ? table.getMinimumSize() : table.getPreferredSize();
+				w += size.width;
+				if (w > maxWidth)
+					maxWidth = w;
+			}
+			return new Dimension(maxWidth+xInsets, height);
+		}
+
+		@Override
+		public void removeLayoutComponent(Component comp) {}
+		
+	}
+
+	
 	private class FiltersLayout implements LayoutManager {
 
 		@Override
@@ -379,10 +737,6 @@ public class NimbusThemeCreator implements
 			Dimension size = keyFilterMethod.getPreferredSize();
 			int kfmw = size.width;
 			int kfw = cw - kfmw - 10;
-			if (kfw < 100) {
-				kfw = 100;
-				kfmw = cw - 110;
-			}
 			keyFilter.setBounds(0, 0, kfw, size.height);
 			keyFilterMethod.setBounds(kfw, 0, kfmw, size.height);
 			size = typeFilter.getPreferredSize();
@@ -411,8 +765,8 @@ public class NimbusThemeCreator implements
 	}
 	
 	private static class Table extends JTable implements ComponentListener {
-		Table(TableModel mdl) {
-			super(mdl);
+		Table(TableModel mdl, TableColumnModel clm) {
+			super(mdl, clm);
 		}
 		
 		
@@ -467,8 +821,8 @@ public class NimbusThemeCreator implements
 			width -= in.left + in.right;
 			for (int i=columns.getColumnCount(); --i>0;)
 				width -= columns.getColumn(i).getWidth();
-			if (width < 200)
-				width = 200;
+			if (width < 210)
+				width = 210;
 			TableColumn col = columns.getColumn(0);
 			if (width != col.getPreferredWidth()) {
 				col.setMinWidth(width);
@@ -481,21 +835,21 @@ public class NimbusThemeCreator implements
 	    
 	}
 	
-	private static final int TABLE_WIDTH = 500;
-	private static final int VALUE_WIDTH = 100;
-	private static final int DEFAULT_WIDTH = 50;
-	private static JTable createUITable(int typeWidth, String valueHeader,
+		
+	
+	private static JTable createUITable(boolean keyColumnResizable, int typeWidth, Type type,
 			List<String> lst, TableCellRenderer renderer, TableCellEditor editor) {
 		String[] keys = lst.toArray(new String[lst.size()]);
 		Arrays.sort(keys);
-		JTable table = new Table(new UITableModel(keys, valueHeader));
+		TableModel mdl = type == null ? new UITableModel(keys) : new UITypeTableModel(keys, type, true);
+		JTable table = new Table(mdl, null);
 		table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
 		table.setRowHeight(25);
-		table.setPreferredScrollableViewportSize(new Dimension(TABLE_WIDTH, table.getRowHeight()*10));
 		TableColumnModel columns = table.getColumnModel();
 		int keyWidth = TABLE_WIDTH-typeWidth-VALUE_WIDTH-DEFAULT_WIDTH;
 		columns.getColumn(0).setMinWidth(keyWidth);
 		columns.getColumn(0).setPreferredWidth(keyWidth);
+		columns.getColumn(0).setResizable(keyColumnResizable);
 		setWidth(columns.getColumn(1), typeWidth);
 		TableColumn column = columns.getColumn(2);
 		setWidth(column, VALUE_WIDTH);
@@ -513,9 +867,21 @@ public class NimbusThemeCreator implements
 
 	@Override
 	public void tableChanged(TableModelEvent e) {
-		UITableModel mdl = (UITableModel)secondaryTable.getModel();
-		mdl.fireTableRowsUpdated(0, mdl.getRowCount()-1);
+		if (e.getSource() == primaryTable.getModel()) {
+			UITableModel mdl = (UITableModel)secondaryTable.getModel();
+			mdl.fireTableRowsUpdated(0, mdl.getRowCount()-1);
+		}
+		if (autoUpdate.isSelected() && updater == null) {
+			updater = new Runnable() {
+				public void run() {
+					updater = null;
+					updateUI();
+				}
+			};
+			SwingUtilities.invokeLater(updater);
+		}
 	}
+	private Runnable updater;
 
 	@Override
 	public void propertyChange(PropertyChangeEvent e) {
@@ -531,22 +897,474 @@ public class NimbusThemeCreator implements
 	
 	@Override
 	public void itemStateChanged(ItemEvent e) {
-		update.setEnabled(!autoUpdate.isSelected());
+		boolean b = autoUpdate.isSelected();
+		update.setEnabled(!b);
+		if (b) {
+			secondaryTable.getModel().addTableModelListener(this);
+			otherTable.getModel().addTableModelListener(this);
+		} else {
+			secondaryTable.getModel().removeTableModelListener(this);
+			otherTable.getModel().removeTableModelListener(this);
+		}
 	}
 
 	@Override
 	public void actionPerformed(ActionEvent e) {
 		if (e.getSource() == update) {
 			updateUI();
-		} else if (e.getSource() == keyFilter || e.getSource() == keyFilterMethod || e.getSource() == typeFilter) {
+		} else if (e.getSource() == keyFilter ||
+				e.getSource() == keyFilterMethod ||
+				e.getSource() == typeFilter) {
 			updateFilter();
+		} else if (e.getActionCommand() == "Import") {
+			if (importer == null)
+				importer = new Importer(
+					(JFrame)SwingUtilities.getWindowAncestor(defaultButton));
+			importer.showDialog();
+		} else if (e.getActionCommand() == "Export") {
+			if (exporter == null)
+				exporter = new Exporter(
+					(JFrame)SwingUtilities.getWindowAncestor(defaultButton));
+			exporter.showDialog();
 		}
 	}
 	
-	private static void updateUI() {
+	private Importer importer;
+	private Exporter exporter;
+	private JFileChooser browse;
+	
+	private JFileChooser getFileChooser() {
+		if (browse == null)
+			browse = new JFileChooser();
+		return browse;
+	}
+	
+	private JComponent createContentPane(JTabbedPane tabs, JButton ok, JButton cancel) {
+		JPanel content = new JPanel(null);
+		GroupLayout layout = new GroupLayout(content);
+		content.setLayout(layout);
+		layout.setHorizontalGroup(layout.createParallelGroup()
+			.addComponent(tabs).addGroup(layout.createSequentialGroup()
+				.addGap(0, 200, Short.MAX_VALUE).addComponent(ok)
+				.addGap(3).addComponent(cancel).addGap(5)));
+		layout.setVerticalGroup(layout.createSequentialGroup()
+			.addComponent(tabs, 0, GroupLayout.PREFERRED_SIZE, Short.MAX_VALUE)
+			.addGroup(layout.createBaselineGroup(false, true)
+				.addComponent(ok).addComponent(cancel))
+			.addGap(5));
+		layout.linkSize(SwingConstants.HORIZONTAL, ok, cancel);
+		return content;
+	}
+	
+	private class Importer implements ActionListener {
+		
+		Importer(JFrame frame) {
+			
+			location = new JTextField(25);
+			JButton browse = new JButton("Browse...");
+			browse.addActionListener(this);
+			JPanel file = new JPanel(new BorderLayout());
+			file.add(titled(createLocation(location, browse), "File Location"), BorderLayout.SOUTH);
+			
+			text = new JTextArea(10, 30);
+			
+			tabs = new JTabbedPane();
+			tabs.addTab("Import from File", file);
+			tabs.addTab("Import from Text", new JScrollPane(text,
+					JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, 
+					JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED));
+			
+			ok = new JButton("OK");
+			ok.addActionListener(this);
+			JButton cancel = new JButton("Cancel");
+			cancel.addActionListener(this);
+			
+			dialog = new JDialog(frame, true);
+			dialog.setContentPane(createContentPane(tabs, ok, cancel));
+			dialog.pack();
+			dialog.setLocationRelativeTo(null);
+		}
+		
+		JDialog dialog;
+		JTabbedPane tabs;
+		JTextArea text;
+		JTextField location;
+		JButton ok;
+		File browseFile;
+		
+		public void actionPerformed(ActionEvent e) {
+			if (e.getActionCommand() == "Browse...") {
+				JFileChooser browse = getFileChooser();
+				browse.setFileSelectionMode(JFileChooser.FILES_ONLY);
+				browse.setMultiSelectionEnabled(false);
+				if (browseFile != null)
+					browse.setSelectedFile(browseFile);
+				if (JFileChooser.APPROVE_OPTION == browse.showSaveDialog(null)) {
+					browseFile = browse.getSelectedFile();
+					location.setText(browseFile.getPath());
+				}
+			} else if (e.getActionCommand() == "OK") {
+				if (tabs.getSelectedIndex() == 0) {
+					try {
+						File file = new File(location.getText());
+						if (!file.isFile()) {
+							error("Invalid File:\n\t" + file.getCanonicalPath());
+							return;
+						}
+						//TODO
+						error("Not Implemented.");
+					} catch (IOException x) {
+						error("IOException: "+x.getMessage());
+						return;
+					}
+				} else if (tabs.getSelectedIndex() == 1) {
+					JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+					if (compiler == null) {
+						error("No compiler available.");
+						return;
+					}
+					String statements = text.getText();
+					StringBuilder s = new StringBuilder(statements.length()+200);
+					String cls = "NimbusTheme";
+					s.append("import javax.swing.*;\n");
+					s.append("import javax.swing.plaf.*;\n");
+					s.append("import java.awt.*;\n");
+					s.append("public class ").append(cls).append(" {\n");
+					s.append("\tpublic static void loadTheme() {\n");
+					s.append(statements);
+					s.append("\t}\n}");
+					
+					CompilationTask task = compiler.getTask(null, null, null, null, null,
+							Arrays.asList(new MemoryFileObject(cls, s.toString())));
+					boolean success = task.call();
+					if (!success) {
+						error("Unable to compile code.");
+						return;
+					} else {
+						try {
+							Class.forName(cls).getDeclaredMethod("loadTheme", (Class[])null)
+								.invoke(null, (Object[])null);
+							File file = new File(".", cls.replace('.', File.separatorChar).concat(".class"));
+							if (file.exists())
+								file.delete();
+						} catch (Exception x) {
+							error(x.getClass().getSimpleName() + ": " + x.getMessage());
+							return;
+						}
+					}
+				}
+				dialog.dispose();
+			} else if (e.getActionCommand() == "Cancel") {
+				dialog.dispose();
+			}
+		}
+		
+		void showDialog() {
+			ok.getRootPane().setDefaultButton(ok);
+			dialog.setVisible(true);
+		}
+		
+	}
+	
+
+	private class MemoryFileObject extends SimpleJavaFileObject {
+	  final String code;
+
+	  MemoryFileObject(String name, String code) {
+	    super(URI.create("string:///" + name.replace('.','/') + Kind.SOURCE.extension),Kind.SOURCE);
+	    this.code = code;
+	  }
+
+	  @Override
+	  public CharSequence getCharContent(boolean ignoreEncodingErrors) {
+	    return code;
+	  }
+	}
+	
+	private JComponent createLocation(JTextField location, JButton browse) {
+		JPanel panel = new JPanel(null);
+		GroupLayout layout = new GroupLayout(panel);
+		panel.setLayout(layout);
+		layout.setHorizontalGroup(layout.createSequentialGroup()
+				.addComponent(location).addComponent(browse));
+		int prf = GroupLayout.PREFERRED_SIZE;
+		layout.setVerticalGroup(layout.createBaselineGroup(false, true)
+				.addComponent(location, prf, prf, prf)
+				.addComponent(browse, prf, prf, prf));
+		return panel;
+	}
+	
+
+	private void error(String msg) {
+		JOptionPane.showMessageDialog(
+				null, msg, "Error", JOptionPane.ERROR_MESSAGE);
+	}
+	
+	private boolean confirm(String msg) {
+		return JOptionPane.OK_OPTION == JOptionPane.showConfirmDialog(
+				null, msg, "Confirm",
+				JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+	}
+	
+	private class Exporter implements ActionListener, ChangeListener {
+		Exporter(JFrame frame) {
+			
+			JLabel pkgLabel = new JLabel("Package Name:");
+			JLabel clsLabel = new JLabel("Class Name:");
+			JLabel mtdLabel = new JLabel("Method Name:");
+			packageField = new JTextField();
+			classField = new JTextField("NimbusTheme");
+			methodField = new JTextField("loadTheme");
+			location = new JTextField(25);
+			JButton browse = new JButton("Browse...");
+			browse.addActionListener(this);
+			
+			JPanel options = titled(new JPanel(null), "Naming Options");
+			GroupLayout layout = new GroupLayout(options);
+			options.setLayout(layout);
+			layout.setHorizontalGroup(layout.createSequentialGroup()
+				.addGroup(layout.createParallelGroup(Alignment.TRAILING, false)
+					.addComponent(pkgLabel).addComponent(clsLabel).addComponent(mtdLabel))
+				.addGap(5)
+				.addGroup(layout.createParallelGroup()
+					.addComponent(packageField).addComponent(classField).addComponent(methodField)));
+			layout.setVerticalGroup(layout.createSequentialGroup()
+				.addGroup(layout.createBaselineGroup(false, true)
+					.addComponent(pkgLabel).addComponent(packageField))
+				.addGroup(layout.createBaselineGroup(false, true)
+					.addComponent(clsLabel).addComponent(classField))
+				.addGroup(layout.createBaselineGroup(false, true)
+					.addComponent(mtdLabel).addComponent(methodField)));
+			JComponent save = titled(createLocation(location, browse), "Save Location");
+			JPanel file = new JPanel(null);
+			layout = new GroupLayout(file);
+			file.setLayout(layout);
+			layout.setHorizontalGroup(layout.createParallelGroup()
+				.addComponent(options).addComponent(save));
+			final int prf = GroupLayout.PREFERRED_SIZE;
+			layout.setVerticalGroup(layout.createSequentialGroup()
+				.addComponent(options, prf, prf, prf).addComponent(save, prf, prf, prf));
+			
+			text = new JTextArea();
+			text.setEditable(false);
+			
+			tabs = new JTabbedPane();
+			tabs.addChangeListener(this);
+			tabs.addTab("Export to File", file);
+			tabs.addTab("Export to Text", new JScrollPane(text,
+					JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, 
+					JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED));
+			
+			ok = new JButton("OK");
+			ok.addActionListener(this);
+			JButton cancel = new JButton("Cancel");
+			cancel.addActionListener(this);
+			
+			dialog = new JDialog(frame, true);
+			dialog.setContentPane(createContentPane(tabs, ok, cancel));
+			dialog.pack();
+			dialog.setLocationRelativeTo(null);
+		}
+		
+		private JDialog dialog;
+		private JTabbedPane tabs;
+		private JTextField packageField;
+		private JTextField classField;
+		private JTextField methodField;
+		private JTextField location;
+		private JButton ok;
+		private JTextArea text;
+		private boolean validTextArea;
+		private File browseDirectory;
+		
+		public void stateChanged(ChangeEvent e) {
+			if (!validTextArea && tabs.getSelectedIndex() == 1) {
+				validTextArea = true;
+				StringWriter writer = new StringWriter();
+				try {
+					export(writer, null);
+					text.setText(writer.toString());
+				} catch (IOException x) {}
+			}
+		}
+		
+		public void actionPerformed(ActionEvent e) {
+			if (e.getActionCommand() == "Browse...") {
+				JFileChooser browse = getFileChooser();
+				browse.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+				browse.setMultiSelectionEnabled(false);
+				if (browseDirectory != null)
+					browse.setSelectedFile(browseDirectory);
+				if (JFileChooser.APPROVE_OPTION == browse.showSaveDialog(null)) {
+					browseDirectory = browse.getSelectedFile();
+					location.setText(browseDirectory.getPath());
+				}
+			} else if (e.getActionCommand() == "OK") {
+				if (tabs.getSelectedIndex() == 0) {
+					String pkg = packageField.getText();
+					String cls = classField.getText();
+					String mtd = methodField.getText();
+					File dir = new File(location.getText());
+					try {
+						if (!dir.isDirectory()) {
+							if (dir.isFile()) {
+								error("Invalid location:\n\t"+dir.getCanonicalPath()+"\nLocation must be a directory.");
+								return;
+							}
+							if (!confirm("Directory does not exist:\n\t"+dir.getCanonicalPath()+"\nCreate?"))
+								return;
+							dir.mkdirs();
+							if (!dir.isDirectory()) {
+								error("Unable to create directory:\n\t" + dir.getCanonicalPath());
+								return;
+							}
+						}
+						File file = new File(dir, cls.concat(".java"));
+						if (file.exists()) {
+							if (!confirm("File already exists:\n\t"+file.getCanonicalPath()+"\nOverwrite?"))
+								return;
+						}
+						BufferedWriter writer = new BufferedWriter(new FileWriter(file));
+						if (pkg != null && !pkg.isEmpty()) {
+							writer.write(pkg);
+							writer.newLine();
+							writer.newLine();
+						}
+						writer.write("import javax.swing.*;");
+						writer.newLine();
+						writer.write("import javax.swing.plaf.*;");
+						writer.newLine();
+						writer.write("import java.awt.*;");
+						writer.newLine();
+						writer.newLine();
+						writer.write("public class ");
+						writer.write(cls);
+						writer.write(" {");
+						writer.newLine();
+						writer.write("\tpublic static void ");
+						writer.write(mtd);
+						writer.write(" {");
+						writer.newLine();
+						export(writer, "\t\t");
+						writer.write("\t}");
+						writer.newLine();
+						writer.write("}");
+						writer.flush();
+						writer.close();
+					} catch (IOException x) {
+						error("IOException: "+x.getMessage());
+						return;
+					}
+				}
+				dialog.dispose();
+			} else if (e.getActionCommand() == "Cancel") {
+				dialog.dispose();
+			}
+		}
+		
+		
+		void showDialog() {
+			ok.getRootPane().setDefaultButton(ok);
+			validTextArea = false;
+			tabs.setSelectedIndex(0);
+			dialog.setVisible(true);
+
+		}
+		
+		private void export(Writer writer, String prefix) throws IOException {
+			BufferedWriter buf = writer instanceof BufferedWriter ? (BufferedWriter)writer : null;
+			UIDefaults def = UIManager.getDefaults();
+			for (Map.Entry<Object,Object> entry : def.entrySet()) {
+				if (def.containsKey(entry.getKey())) {
+					if (prefix != null)
+						writer.write(prefix);
+					writer.write("UIManager.put(\"");
+					writer.write(entry.getKey().toString());
+					Object obj = entry.getValue();
+					Type type = Type.getType(obj);
+					switch (type) {
+					case Color:
+						Color color = (Color)obj;
+						writer.write("\", new ColorUIResource(0x");
+						writer.write(Integer.toHexString(color.getRGB() & 0xffffff));
+						writer.write("));");
+						break;
+					case Painter:
+						break;
+					case Insets:
+						Insets insets = (Insets)obj;
+						writer.write("\", new InsetsUIResource(");
+						writer.write(Integer.toString(insets.top));
+						writer.write(", ");
+						writer.write(Integer.toString(insets.left));
+						writer.write(", ");
+						writer.write(Integer.toString(insets.bottom));
+						writer.write(", ");
+						writer.write(Integer.toString(insets.right));
+						writer.write("));");
+						break;
+					case Font:
+						Font font = (Font)obj;
+						writer.write("\", new FontUIResource(\"");
+						writer.write(font.getFamily());
+						writer.write("\", ");
+						String style = font.isBold() ? "Font.BOLD" : null;
+						style = font.isItalic() ?
+								style == null ? "Font.ITALIC" : style + " | " + "Font.ITALIC"
+								: null;
+						if (style == null)
+							style = "Font.PLAIN";
+						writer.write(style);
+						writer.write(", ");
+						writer.write(font.getSize());
+						writer.write("));");
+						break;
+					case Boolean:
+						writer.write("\", Boolean.");
+						writer.write(obj == Boolean.TRUE ? "TRUE" : "FALSE");
+						writer.write(");");
+						break;
+					case Integer:
+						writer.write("\", new Integer(");
+						writer.write(obj.toString());
+						writer.write("));");
+						break;
+					case String:
+						writer.write("\", \"");
+						writer.write(obj.toString());
+						writer.write('"');
+						writer.write(");");
+						break;
+					case Icon:
+						break;
+					case Dimension:
+						Dimension size = (Dimension)obj;
+						writer.write("\", new DimensionUIResource(");
+						writer.write(Integer.toString(size.width));
+						writer.write(", ");
+						writer.write(Integer.toString(size.height));
+						writer.write("));");
+						break;
+					case Object:
+						break;
+					}
+					if (buf != null) {
+						buf.newLine();
+					} else {
+						writer.write('\n');
+					}
+				}
+			}
+		}
+		
+	}
+	
+	
+	private void updateUI() {
 		for (Window window : Window.getWindows()) {
 			SwingUtilities.updateComponentTreeUI(window);
 		}
+		defaultButton.getRootPane().setDefaultButton(defaultButton);
 	}
 	
 	private void updateFilter() {
@@ -608,6 +1426,7 @@ public class NimbusThemeCreator implements
 			return chooser;
 		}
 		
+		
 		static Type getType(Object obj) {
 			if (obj instanceof Color) {
 				return Color;
@@ -634,17 +1453,44 @@ public class NimbusThemeCreator implements
 		}
 		
 	}
+
+	private static class UITypeTableModel extends UITableModel {
+		UITypeTableModel(String[] keys, Type typ, boolean edt) {
+			super(keys, null);
+			type = typ;
+			editable = edt;
+		}
+		private Type type;
+		private boolean editable;
+		
+		@Override
+		Type getType(int row) {
+			return type;
+		}
+		
+		@Override
+		public String getColumnName(int col) {
+			return col == 2 ? type.name() : super.getColumnName(col);
+		}
+		
+		@Override
+		public boolean isCellEditable(int row, int col) {
+			return editable ? super.isCellEditable(row, col) : false;
+		}
+
+	}
 	
 	private static class UITableModel extends AbstractTableModel {
-		UITableModel(String[] kys, String valHdr) {
+		UITableModel(String[] kys) {
+			this(kys, new Type[kys.length]);
+		}
+		UITableModel(String[] kys, Type[] tys) {
 			keys = kys;
-			types = new Type[kys.length];
-			valueHeader = valHdr;
+			types = tys;
 		}
 		
 		private String[] keys;
 		private Type[] types;
-		private String valueHeader;
 
 		@Override
 		public int getColumnCount() {
@@ -656,7 +1502,7 @@ public class NimbusThemeCreator implements
 			switch (col) {
 			case 0: return "Key";
 			case 1: return "Type";
-			case 2: return valueHeader;
+			case 2: return "Value";
 			case 3: return "Default";
 			}
 			throw new IllegalArgumentException();
@@ -733,17 +1579,19 @@ public class NimbusThemeCreator implements
 	private static class UIDefaultsRenderer extends JComponent implements TableCellRenderer {
 		private static final Font BOOLEAN_FONT = Font.decode("sansserif-bold");
 		
-		boolean selected;
 		Object value;
 		Type type;
+		int row = -1;
+		boolean selected = false;
 		
 		@Override
 		public Component getTableCellRendererComponent(JTable tbl,
 				Object val, boolean isSelected, boolean hasFocus, int row,
 				int column) {
 			UITableModel mdl = (UITableModel)tbl.getModel();
-			type = mdl.getType(tbl.convertRowIndexToModel(row));
 			value = val;
+			type = mdl.getType(tbl.convertRowIndexToModel(row));
+			this.row = row;
 			selected = isSelected;
 			return this;
 		}
@@ -751,6 +1599,9 @@ public class NimbusThemeCreator implements
 		protected void paintComponent(Graphics g) {
 			if (selected) {
 				g.setColor(UIManager.getColor("Table[Enabled+Selected].textBackground"));
+				g.fillRect(0, 0, getWidth(), getHeight());
+			} else if (row%2==0) {
+				g.setColor(UIManager.getColor("Table.alternateRowColor"));
 				g.fillRect(0, 0, getWidth(), getHeight());
 			}
 			switch (type) {
@@ -867,6 +1718,7 @@ public class NimbusThemeCreator implements
 			return renderer.value;
 		}
 
+		@Override
 		public Component getTableCellEditorComponent(JTable table,
 				Object value, boolean isSelected, int row, int column) {
 			return renderer.getTableCellRendererComponent(table, value, true, false, row, column);
@@ -889,16 +1741,14 @@ public class NimbusThemeCreator implements
 				Object value = currentChooser.getValue();
 				if (!value.equals(renderer.value))
 					renderer.value = value;
-				hidePopup();
+				currentChooser = null;
+				popup.setVisible(false);
+				fireEditingStopped();
 			} else if (e.getActionCommand() == CANCEL) {
-				hidePopup();
+				currentChooser = null;
+				popup.setVisible(false);
+				fireEditingCanceled();
 			}
-		}
-		
-		private void hidePopup() {
-			currentChooser = null;
-			popup.setVisible(false);
-			fireEditingStopped();
 		}
 		
 		@Override
@@ -966,10 +1816,12 @@ public class NimbusThemeCreator implements
 		JRadioButton tru;
 		JRadioButton fal;
 
+		@Override
 		JComponent getComponent() {
 			return pane;
 		}
-		
+
+		@Override
 		void setValue(Object value) {
 			if (Boolean.TRUE.equals(value)) {
 				tru.setSelected(true);
@@ -977,38 +1829,41 @@ public class NimbusThemeCreator implements
 				fal.setSelected(true);
 			}
 		}
-		
+
+		@Override
 		Object getValue() {
 			return Boolean.valueOf(tru.isSelected());
 		}
+
 	}
 	
 	private static class StringChooser extends ValueChooser {
 		
 		@SuppressWarnings("unused")
 		StringChooser() {
-			FlowLayout layout = new FlowLayout(FlowLayout.CENTER, 2, 0);
-			pane = new JPanel(layout);
-			pane.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+			pane = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 2));
 			text = new JTextField(40);
 			pane.add(text);
 		}
 		
 		JComponent pane;
 		JTextField text;
-		
+
+		@Override
 		JComponent getComponent() {
 			return pane;
 		}
-		
+
+		@Override
 		void setValue(Object value) {
 			text.setText(value.toString());
 		}
-		
+
+		@Override
 		Object getValue() {
 			return text.getText();
 		}
-		
+
 	}
 	
 	private static class ColorChooser extends ValueChooser {
@@ -1019,18 +1874,22 @@ public class NimbusThemeCreator implements
 		}
 		
 		JColorChooser chooser;
-		
+
+		@Override
 		JComponent getComponent() {
 			return chooser;
 		}
-		
+
+		@Override
 		void setValue(Object value) {
 			chooser.setColor((Color)value);
 		}
-		
+
+		@Override
 		Object getValue() {
 			return chooser.getColor();
 		}
+
 	}
 	
 	
@@ -1042,18 +1901,22 @@ public class NimbusThemeCreator implements
 		}
 		JComponent pane;
 		NumberChooser chooser;
-		
+
+		@Override
 		JComponent getComponent() {
 			return pane;
 		}
-		
+
+		@Override
 		void setValue(Object value) {
 			chooser.setValue((Integer)value);
 		}
-		
+
+		@Override
 		Object getValue() {
 			return chooser.getValue();
 		}
+
 	}
 	
 	private static class DimensionChooser extends ValueChooser implements ChangeListener {
@@ -1072,26 +1935,32 @@ public class NimbusThemeCreator implements
 		NumberChooser width;
 		NumberChooser height;
 		UIDefaultsRenderer renderer;
-		
+
+		@Override
 		JComponent getComponent() {
 			return pane;
 		}
-		
+
+		@Override
 		void setValue(Object value) {
 			Dimension d = (Dimension)value;
 			renderer.value = null;
 			width.setValue(d.width);
 			height.setValue(d.height);
-			renderer.value = value;
+			renderer.value = (Dimension)d.clone();
 		}
-		
+
+		@Override
 		Object getValue() {
 			return renderer.value;
 		}
-		
-		public void stateChanged(ChangeEvent evt) {
+
+		@Override
+		public void stateChanged(ChangeEvent e) {
 			if (renderer.value != null) {
-				renderer.value = new Dimension(width.getValue(), height.getValue());
+				Dimension d = (Dimension)renderer.value;
+				d.width = width.getValue();
+				d.height = height.getValue();
 				renderer.repaint();
 			}
 		}
@@ -1122,11 +1991,13 @@ public class NimbusThemeCreator implements
 		NumberChooser bottom;
 		NumberChooser right;
 		UIDefaultsRenderer renderer;
-		
+
+		@Override
 		JComponent getComponent() {
 			return pane;
 		}
-		
+
+		@Override
 		void setValue(Object value) {
 			Insets i = (Insets)value;
 			renderer.value = null;
@@ -1134,21 +2005,27 @@ public class NimbusThemeCreator implements
 			left.setValue(i.left);
 			bottom.setValue(i.bottom);
 			right.setValue(i.right);
-			renderer.value = i;
+			renderer.value = (Insets)i.clone();
 			renderer.repaint();
 		}
-		
+
+		@Override
 		Object getValue() {
 			return renderer.value;
 		}
-		
-		public void stateChanged(ChangeEvent evt) {
+
+		@Override
+		public void stateChanged(ChangeEvent e) {
 			if (renderer.value != null) {
-				renderer.value = new Insets(top.getValue(), left.getValue(), bottom.getValue(), right.getValue());
+				Insets in = (Insets)renderer.value;
+				in.top = top.getValue();
+				in.left = left.getValue();
+				in.bottom = bottom.getValue();
+				in.right = right.getValue();
 				renderer.repaint();
 			}
 		}
-		
+
 	}
 
 	private static class NumberChooser implements ChangeListener {
@@ -1168,12 +2045,12 @@ public class NimbusThemeCreator implements
 		
 		@Override
 		public void stateChanged(ChangeEvent e) {
-			if (e.getSource() == slide) {
-				if (spin.getNumber().intValue() != slide.getValue())
+			if (spin.getNumber().intValue() != slide.getValue()) {
+				if (e.getSource() == slide) {
 					spin.setValue(slide.getValue());
-			} else {
-				if (slide.getValue() != spin.getNumber().intValue())
+				} else {
 					slide.setValue(spin.getNumber().intValue());
+				}
 			}
 		}
 		
@@ -1241,10 +2118,10 @@ public class NimbusThemeCreator implements
 			size = new SpinnerNumberModel(32f, 8f, 32f, 2f);
 			size.addChangeListener(this);
 			JSpinner sizeSpin = new JSpinner(size);
-			bold = new JToggleButton("B");
+			bold = new JToggleButton("b");
 			bold.addChangeListener(this);
 			bold.setFont(bold.getFont().deriveFont(Font.BOLD));
-			italic = new JToggleButton("I");
+			italic = new JToggleButton("i");
 			italic.addChangeListener(this);
 			italic.setFont(italic.getFont().deriveFont(Font.ITALIC));
 			renderer = new UIDefaultsRenderer();
@@ -1271,11 +2148,13 @@ public class NimbusThemeCreator implements
 		JToggleButton bold;
 		JToggleButton italic;
 		UIDefaultsRenderer renderer;
-		
+
+		@Override
 		JComponent getComponent() {
 			return pane;
 		}
-		
+
+		@Override
 		void setValue(Object value) {
 			Font font = (Font)value;
 			renderer.value = null;
@@ -1285,7 +2164,8 @@ public class NimbusThemeCreator implements
 			italic.setSelected(font.isItalic());
 			renderer.value = value;
 		}
-		
+
+		@Override
 		Object getValue() {
 			return renderer.value;
 		}
@@ -1293,28 +2173,149 @@ public class NimbusThemeCreator implements
 		@Override
 		public void stateChanged(ChangeEvent e) {
 			Font font = (Font)renderer.value;
-			if (e.getSource() == size) {
-				renderer.value = font.deriveFont(size.getNumber().floatValue());
-			} else if (e.getSource() == bold) {
-				renderer.value = font.deriveFont(bold.isSelected() ?
-						font.getStyle() | Font.BOLD : font.getStyle() & ~Font.BOLD);
-			} else if (e.getSource() == italic) {
-				renderer.value = font.deriveFont(italic.isSelected() ?
-						font.getStyle() | Font.ITALIC : font.getStyle() & ~Font.ITALIC);
-			} else if (e.getSource() == family) {
-				font = Font.decode(family.getValue().toString()+' '+size.getNumber().intValue());
-				int style = 0;
-				if (bold.isSelected())
-					style |= Font.BOLD;
-				if (italic.isSelected())
-					style |= Font.ITALIC;
-				if (style != 0)
-					font = font.deriveFont(style);
-				renderer.value = font;
+			if (font != null) {
+				if (e.getSource() == size) {
+					renderer.value = font.deriveFont(size.getNumber().floatValue());
+				} else if (e.getSource() == bold) {
+					renderer.value = font.deriveFont(bold.isSelected() ?
+							font.getStyle() | Font.BOLD : font.getStyle() & ~Font.BOLD);
+				} else if (e.getSource() == italic) {
+					renderer.value = font.deriveFont(italic.isSelected() ?
+							font.getStyle() | Font.ITALIC : font.getStyle() & ~Font.ITALIC);
+				} else if (e.getSource() == family) {
+					font = Font.decode(family.getValue().toString()+' '+size.getNumber().intValue());
+					int style = 0;
+					if (bold.isSelected())
+						style |= Font.BOLD;
+					if (italic.isSelected())
+						style |= Font.ITALIC;
+					if (style != 0)
+						font = font.deriveFont(style);
+					renderer.value = font;
+				}
+				renderer.repaint();
 			}
-			renderer.repaint();
+		}
+
+	}
+	
+	//TODO
+	private static class PainterChooser extends ValueChooser implements ActionListener, ListSelectionListener, ChangeListener {
+		@SuppressWarnings("unused")
+		PainterChooser() {
+			tablePane = new JScrollPane();
+			renderer = new UIDefaultsRenderer();
+			renderer.type = Type.Painter;
+			editor = new JTextArea(20, 80);
+			editor.setText("Not Implemented");
+			editor.setEnabled(false);
+			editor.setFont(Font.decode(Font.MONOSPACED+' '+12));
+			JScrollPane scroller = new JScrollPane(editor);
+			JButton update = new JButton("Update");
+			update.addActionListener(this);
+			update.setEnabled(false);
+			JButton toDialog = new JButton("Switch to Dialog");
+			toDialog.addActionListener(this);
+			JPanel custom = new JPanel(null);
+			GroupLayout layout = new GroupLayout(custom);
+			custom.setLayout(layout);
+			layout.setHorizontalGroup(layout.createParallelGroup()
+				.addComponent(scroller)
+				.addGroup(layout.createSequentialGroup()
+						.addComponent(update).addGap(10, 100, Short.MAX_VALUE).addComponent(toDialog)));
+			layout.setVerticalGroup(layout.createSequentialGroup()
+				.addComponent(scroller)
+				.addGroup(layout.createBaselineGroup(false, true)
+					.addComponent(update).addComponent(toDialog)));
+			
+			tabs = new JTabbedPane();
+			pane = new JPanel(null);
+			layout = new GroupLayout(pane);
+			pane.setLayout(layout);
+			layout.setHorizontalGroup(layout.createParallelGroup()
+					.addComponent(tabs)
+					.addComponent(renderer, Alignment.CENTER, 100, 100, Short.MAX_VALUE));
+			layout.setVerticalGroup(layout.createSequentialGroup()
+					.addComponent(tabs).addComponent(renderer, 25, 25, 25));
+			tabs.add("Custom", custom);
+			tabs.add("Nimbus Painters", tablePane);
+			tabs.addChangeListener(this);
 		}
 		
+		JComponent pane;
+		JTabbedPane tabs;
+		JScrollPane tablePane;
+		JTable table;
+		JTextArea editor;
+		UIDefaultsRenderer renderer;
+		Object value;
+		JDialog dialog;
+
+		@Override
+		JComponent getComponent() {
+			return pane;
+		}
+
+		@Override
+		void setValue(Object value) {
+			this.value = null;
+			if (table != null)
+				table.changeSelection(-1, -1, false, false);
+			this.value = value;
+			renderer.value = value;
+		}
+
+		@Override
+		Object getValue() {
+			return value;
+		}
+
+		@Override
+		public void valueChanged(ListSelectionEvent e) {
+			if (value == null || e.getValueIsAdjusting())
+				return;
+			int row = table.getSelectedRow();
+			renderer.value = row < 0 ? value : 
+					UIManager.getLookAndFeelDefaults().get(
+							table.getValueAt(row, 0));
+			renderer.repaint();
+		}
+
+		@Override
+		public void stateChanged(ChangeEvent e) {
+			if (tabs.getSelectedComponent() == tablePane && table == null) {
+				DefaultTableColumnModel columns = new DefaultTableColumnModel();
+				TableColumn column = new TableColumn(0, 400);
+				column.setHeaderValue("Key");
+				columns.addColumn(column);
+				column = new TableColumn(2, 50, new UIDefaultsRenderer(), null);
+				columns.addColumn(column);
+				column.setHeaderValue(Type.Painter.name());
+				table = new Table(new UITypeTableModel(painterKeys, Type.Painter, false), columns);
+				table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+				table.setRowHeight(25);
+				table.setPreferredScrollableViewportSize(new Dimension(500, table.getRowHeight()*10));
+				table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+				table.getSelectionModel().addListSelectionListener(this);
+				tablePane.getViewport().setView(table);
+				tablePane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+			}
+		}
+		
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			if (e.getActionCommand() == "Update") {
+				
+			} else if (e.getActionCommand() == "Switch to Dialog") {
+				if (dialog == null) {
+					dialog = new JDialog((JFrame)null, true);
+				}
+				dialog.add(pane, BorderLayout.CENTER);
+				dialog.pack();
+				dialog.setVisible(true);
+			}
+		}
+
 	}
 
 }
