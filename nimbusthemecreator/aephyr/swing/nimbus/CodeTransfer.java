@@ -469,14 +469,15 @@ class CodeTransfer implements ActionListener, ChangeListener {
 	
 	static boolean importThemeFromFile(File file) throws IOException {
 		FileReader reader = new FileReader(file);
-		long len = file.length();
-		char[] c = new char[(int)len+1];
-		for (int r, o=0, l=c.length; (r=reader.read(c, o, l))>=0;) {
-			o += r;
+		int len = (int)file.length();
+		char[] c = new char[len+1];
+		len = 0;
+		for (int r, l=c.length; (r=reader.read(c, len, l))>=0;) {
+			len += r;
 			l -= r;
 		}
 		reader.close();
-		String java = new String(c, 0, c.length-1);
+		String java = new String(c, 0, len);
 		Matcher matcher = Pattern.compile("UIManager\\.put[^;]+").matcher(java);
 		ArrayList<String> statements = new ArrayList<String>();
 		while (matcher.find())
