@@ -326,7 +326,7 @@ class CodeTransfer implements ActionListener, ChangeListener {
 	}
 	
 
-	private void doExport(Writer writer, String prefix) throws IOException {
+	private static void doExport(Writer writer, String prefix) throws IOException {
 		BufferedWriter buf = writer instanceof BufferedWriter ? (BufferedWriter)writer : null;
 		UIDefaults def = UIManager.getDefaults();
 		UIDefaults lnfDef = UIManager.getLookAndFeelDefaults();
@@ -420,22 +420,6 @@ class CodeTransfer implements ActionListener, ChangeListener {
 		}
 	}
 	
-	static boolean importThemeFromFile(File file) throws IOException {
-		FileReader reader = new FileReader(file);
-		long len = file.length();
-		char[] c = new char[(int)len+1];
-		for (int r, o=0, l=c.length; (r=reader.read(c, o, l))>=0;) {
-			o += r;
-			l -= r;
-		}
-		String java = new String(c, 0, c.length-1);
-		Matcher matcher = Pattern.compile("UIManager\\.put[^;]+").matcher(java);
-		ArrayList<String> statements = new ArrayList<String>();
-		while (matcher.find())
-			statements.add(matcher.group());
-		return doImport(statements.toArray(new String[statements.size()]));
-	}
-	
 	
 	/**
 	 * @return true if importation was successful
@@ -481,6 +465,23 @@ class CodeTransfer implements ActionListener, ChangeListener {
 			}
 		}
 		return true;
+	}
+	
+	static boolean importThemeFromFile(File file) throws IOException {
+		FileReader reader = new FileReader(file);
+		long len = file.length();
+		char[] c = new char[(int)len+1];
+		for (int r, o=0, l=c.length; (r=reader.read(c, o, l))>=0;) {
+			o += r;
+			l -= r;
+		}
+		reader.close();
+		String java = new String(c, 0, c.length-1);
+		Matcher matcher = Pattern.compile("UIManager\\.put[^;]+").matcher(java);
+		ArrayList<String> statements = new ArrayList<String>();
+		while (matcher.find())
+			statements.add(matcher.group());
+		return doImport(statements.toArray(new String[statements.size()]));
 	}
 
 	/**
