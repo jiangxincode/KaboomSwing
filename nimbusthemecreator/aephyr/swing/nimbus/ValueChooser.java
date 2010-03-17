@@ -8,6 +8,8 @@ import java.awt.Font;
 import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.util.ArrayList;
+import java.util.Arrays;
 
 import javax.swing.ButtonGroup;
 import javax.swing.GroupLayout;
@@ -549,8 +551,12 @@ abstract class ValueChooser {
 				column = new TableColumn(2, 50, new UIDefaultsRenderer(), null);
 				columns.addColumn(column);
 				column.setHeaderValue(Type.Painter.name());
+				ArrayList<String> painters = new ArrayList<String>(1000);
+				Creator.getKeys(null, painters);
+				String[] painterKeys = painters.toArray(new String[painters.size()]);
+				Arrays.sort(painterKeys);
 				table = new UITable(new UITypeTableModel(
-						NimbusThemeCreator.painterKeys, Type.Painter, false), columns);
+						painterKeys, Type.Painter, false), columns);
 				table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
 				table.setRowHeight(25);
 				table.setPreferredScrollableViewportSize(new Dimension(500, table.getRowHeight()*10));

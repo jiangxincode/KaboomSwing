@@ -18,6 +18,8 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -65,8 +67,65 @@ class CodeTransfer implements ActionListener, ChangeListener {
 	private static final int FILE_TAB = 0;
 	private static final int TEXT_TAB = 1;
 	
-	CodeTransfer(JFrame frame) {
-
+	CodeTransfer(UITableModel...mdls) {
+		models = mdls;
+	}
+	
+	private UITableModel[] models;
+	
+	private JDialog dialog;
+	private JTabbedPane tabs;
+	private boolean isExport;
+	
+	private JComponent options;
+	private JTextField packageField;
+	private JTextField classField;
+	private JTextField methodField;
+	private JRadioButton indentTabs;
+	private JRadioButton indentJava;
+	
+	private JTextField location;
+	private TitledBorder locationBorder;
+	
+	private JButton ok;
+	
+	private JTextArea text;
+	private boolean validTextArea;
+	
+	private JFileChooser browse;
+	
+	void showImportDialog(JFrame frame) {
+		maybeInitializeDialog(frame);
+		isExport = false;
+		location.setText(null);
+		locationBorder.setTitle(LOCATION_IMPORT);
+		tabs.setTitleAt(FILE_TAB, TAB_FILE_IMPORT);
+		tabs.setTitleAt(TEXT_TAB, TAB_TEXT_IMPORT);
+		tabs.setSelectedIndex(FILE_TAB);
+		options.setVisible(false);
+		text.setEditable(true);
+		dialog.setTitle(DIALOG_IMPORT);
+		ok.getRootPane().setDefaultButton(ok);
+		dialog.setVisible(true);
+	}
+	
+	void showExportDialog(JFrame frame) {
+		maybeInitializeDialog(frame);
+		isExport = true;
+		location.setText(null);
+		locationBorder.setTitle(LOCATION_EXPORT);
+		tabs.setTitleAt(FILE_TAB, TAB_FILE_EXPORT);
+		tabs.setTitleAt(TEXT_TAB, TAB_TEXT_EXPORT);
+		tabs.setSelectedIndex(FILE_TAB);
+		options.setVisible(true);
+		text.setEditable(false);
+		validTextArea = false;
+		dialog.setTitle(DIALOG_EXPORT);
+		ok.getRootPane().setDefaultButton(ok);
+		dialog.setVisible(true);
+	}
+	
+	private void maybeInitializeDialog(JFrame frame) {
 		JLabel pkgLabel = new JLabel("Package Name:");
 		JLabel clsLabel = new JLabel("Class Name:");
 		JLabel mtdLabel = new JLabel("Method Name:");
@@ -83,7 +142,7 @@ class CodeTransfer implements ActionListener, ChangeListener {
 		JButton browse = new JButton("Browse...");
 		browse.addActionListener(this);
 		
-		options = NimbusThemeCreator.titled(new JPanel(null), "Options");
+		options = Preview.titled(new JPanel(null), "Options");
 		GroupLayout layout = new GroupLayout(options);
 		options.setLayout(layout);
 		layout.setHorizontalGroup(layout.createSequentialGroup()
@@ -161,56 +220,6 @@ class CodeTransfer implements ActionListener, ChangeListener {
 		dialog.setLocationRelativeTo(null);
 	}
 	
-	private JDialog dialog;
-	private JTabbedPane tabs;
-	private boolean isExport;
-	
-	private JComponent options;
-	private JTextField packageField;
-	private JTextField classField;
-	private JTextField methodField;
-	private JRadioButton indentTabs;
-	private JRadioButton indentJava;
-	
-	private JTextField location;
-	private TitledBorder locationBorder;
-	
-	private JButton ok;
-	
-	private JTextArea text;
-	private boolean validTextArea;
-	
-	private JFileChooser browse;
-	
-	void showImportDialog() {
-		isExport = false;
-		location.setText(null);
-		locationBorder.setTitle(LOCATION_IMPORT);
-		tabs.setTitleAt(FILE_TAB, TAB_FILE_IMPORT);
-		tabs.setTitleAt(TEXT_TAB, TAB_TEXT_IMPORT);
-		tabs.setSelectedIndex(FILE_TAB);
-		options.setVisible(false);
-		text.setEditable(true);
-		dialog.setTitle(DIALOG_IMPORT);
-		ok.getRootPane().setDefaultButton(ok);
-		dialog.setVisible(true);
-	}
-	
-	void showExportDialog() {
-		isExport = true;
-		location.setText(null);
-		locationBorder.setTitle(LOCATION_EXPORT);
-		tabs.setTitleAt(FILE_TAB, TAB_FILE_EXPORT);
-		tabs.setTitleAt(TEXT_TAB, TAB_TEXT_EXPORT);
-		tabs.setSelectedIndex(FILE_TAB);
-		options.setVisible(true);
-		text.setEditable(false);
-		validTextArea = false;
-		dialog.setTitle(DIALOG_EXPORT);
-		ok.getRootPane().setDefaultButton(ok);
-		dialog.setVisible(true);
-	}
-	
 	
 	@Override
 	public void stateChanged(ChangeEvent e) {
@@ -286,38 +295,7 @@ class CodeTransfer implements ActionListener, ChangeListener {
 							"\nOverwrite?"))
 						return false;
 				}
-				BufferedWriter writer = new BufferedWriter(new FileWriter(file));
-				if (pkg != null && !pkg.isEmpty()) {
-					writer.write("package ");
-					writer.write(pkg);
-					writer.write(';');
-					writer.newLine();
-					writer.newLine();
-				}
-				writer.write("import javax.swing.*;");
-				writer.newLine();
-//				writer.write("import javax.swing.plaf.*;");
-//				writer.newLine();
-				writer.write("import java.awt.*;");
-				writer.newLine();
-				writer.newLine();
-				writer.write("public class ");
-				writer.write(cls);
-				writer.write(" {");
-				writer.newLine();
-				String indent = indentTabs.isSelected() ? "\t" : "    ";
-				writer.write(indent);
-				writer.write("public static void ");
-				writer.write(mtd);
-				writer.write("() {");
-				writer.newLine();
-				doExport(writer, indentTabs.isSelected() ? "\t\t" : "\t");
-				writer.write(indent);
-				writer.write('}');
-				writer.newLine();
-				writer.write('}');
-				writer.flush();
-				writer.close();
+				return exportThemeToFile(file, pkg, cls, mtd, indentTabs.isSelected());
 			} catch (IOException x) {
 				return CodeTransfer.error("IOException: "+x.getMessage());
 			}
@@ -326,96 +304,97 @@ class CodeTransfer implements ActionListener, ChangeListener {
 	}
 	
 
-	private static void doExport(Writer writer, String prefix) throws IOException {
+	void doExport(Writer writer, String prefix) throws IOException {
 		BufferedWriter buf = writer instanceof BufferedWriter ? (BufferedWriter)writer : null;
-		UIDefaults def = UIManager.getDefaults();
-		UIDefaults lnfDef = UIManager.getLookAndFeelDefaults();
-		for (Object key : def.keySet()) {
-			Object obj = def.get(key);
-			if (obj.equals(lnfDef.get(key)))
-				continue;
-			Type type = Type.getType(obj);
-			switch (type) {
-			// unsupported types
-			case Painter: case Icon: case Object:
-				continue;
-			}
-			if (prefix != null)
-				writer.write(prefix);
-			writer.write("UIManager.put(\"");
-			writer.write(key.toString());
-			switch (type) {
-			case Color:
-				Color color = (Color)obj;
+		for (UITableModel model : models) {
+			for (int i=0, j=model.getRowCount(); i<j; i++) {
+				if (model.isDefault(i))
+					continue;
+				String key = model.getKey(i);
+				Object value = model.getValue(i);
+				Type type = Type.getType(value);
+				switch (type) {
+				// unsupported types
+				case Painter: case Icon: case Object:
+					continue;
+				}
+				if (prefix != null)
+					writer.write(prefix);
+				writer.write("UIManager.put(\"");
+				writer.write(key.toString());
+				switch (type) {
+				case Color:
+					Color color = (Color)value;
 //				writer.write("\", new ColorUIResource(0x");
-				writer.write("\", new Color(0x");
-				writer.write(Integer.toHexString(color.getRGB() & 0xffffff));
-				writer.write("));");
-				break;
-			case Painter:
-				throw new IllegalStateException();
-			case Insets:
-				Insets insets = (Insets)obj;
+					writer.write("\", new Color(0x");
+					writer.write(Integer.toHexString(color.getRGB() & 0xffffff));
+					writer.write("));");
+					break;
+				case Painter:
+					throw new IllegalStateException();
+				case Insets:
+					Insets insets = (Insets)value;
 //				writer.write("\", new InsetsUIResource(");
-				writer.write("\", new Insets(");
-				writer.write(Integer.toString(insets.top));
-				writer.write(", ");
-				writer.write(Integer.toString(insets.left));
-				writer.write(", ");
-				writer.write(Integer.toString(insets.bottom));
-				writer.write(", ");
-				writer.write(Integer.toString(insets.right));
-				writer.write("));");
-				break;
-			case Font:
-				Font font = (Font)obj;
+					writer.write("\", new Insets(");
+					writer.write(Integer.toString(insets.top));
+					writer.write(", ");
+					writer.write(Integer.toString(insets.left));
+					writer.write(", ");
+					writer.write(Integer.toString(insets.bottom));
+					writer.write(", ");
+					writer.write(Integer.toString(insets.right));
+					writer.write("));");
+					break;
+				case Font:
+					Font font = (Font)value;
 //				writer.write("\", new FontUIResource(\"");
-				writer.write("\", new Font(\"");
-				writer.write(font.getFamily());
-				writer.write("\", ");
-				String style = font.isBold() ? "Font.BOLD" : null;
-				style = font.isItalic() ?
-						style == null ? "Font.ITALIC" : style + " | " + "Font.ITALIC"
-								: "Font.PLAIN";
-				writer.write(style);
-				writer.write(", ");
-				writer.write(font.getSize());
-				writer.write("));");
-				break;
-			case Boolean:
-				writer.write("\", Boolean.");
-				writer.write(obj == Boolean.TRUE ? "TRUE" : "FALSE");
-				writer.write(");");
-				break;
-			case Integer:
-				writer.write("\", new Integer(");
-				writer.write(obj.toString());
-				writer.write("));");
-				break;
-			case String:
-				writer.write("\", \"");
-				writer.write(obj.toString());
-				writer.write('"');
-				writer.write(");");
-				break;
-			case Icon:
-				throw new IllegalStateException();
-			case Dimension:
-				Dimension size = (Dimension)obj;
-				writer.write("\", new Dimension(");
+					writer.write("\", new Font(\"");
+					writer.write(font.getFamily());
+					writer.write("\", ");
+					String style = font.isBold() ? "Font.BOLD" : null;
+					style = font.isItalic() ?
+							style == null ? "Font.ITALIC" : style + " | " + "Font.ITALIC"
+									: "Font.PLAIN";
+					writer.write(style);
+					writer.write(", ");
+					writer.write(font.getSize());
+					writer.write("));");
+					break;
+				case Boolean:
+					writer.write("\", Boolean.");
+					writer.write(value == Boolean.TRUE ? "TRUE" : "FALSE");
+					writer.write(");");
+					break;
+				case Integer:
+					writer.write("\", new Integer(");
+					writer.write(value.toString());
+					writer.write("));");
+					break;
+				case String:
+					writer.write("\", \"");
+					writer.write(value.toString());
+					writer.write('"');
+					writer.write(");");
+					break;
+				case Icon:
+					throw new IllegalStateException();
+				case Dimension:
+					Dimension size = (Dimension)value;
+					writer.write("\", new Dimension(");
 //				writer.write("\", new DimensionUIResource(");
-				writer.write(Integer.toString(size.width));
-				writer.write(", ");
-				writer.write(Integer.toString(size.height));
-				writer.write("));");
-				break;
-			case Object:
-				throw new IllegalStateException();
-			}
-			if (buf != null) {
-				buf.newLine();
-			} else {
-				writer.write('\n');
+					writer.write(Integer.toString(size.width));
+					writer.write(", ");
+					writer.write(Integer.toString(size.height));
+					writer.write("));");
+					break;
+				case Object:
+					throw new IllegalStateException();
+				}
+				if (buf != null) {
+					buf.newLine();
+				} else {
+					writer.write('\n');
+				}
 			}
 		}
 	}
@@ -430,70 +409,139 @@ class CodeTransfer implements ActionListener, ChangeListener {
 				File file = new File(location.getText());
 				if (!file.isFile())
 					return CodeTransfer.error("Invalid File:\n\t" + file.getCanonicalPath());
-				return importThemeFromFile(file);
+				return doImport(getStatements(file));
 			} catch (IOException x) {
 				return CodeTransfer.error("IOException: "+x.getMessage());
 			}
 		} else if (tabs.getSelectedIndex() == TEXT_TAB) {
 			String statements = text.getText();
-			JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-			if (compiler == null)
-				return doImport(statements.split(";"));
-			StringBuilder s = new StringBuilder(statements.length()+200);
-			String cls = "NimbusTheme";
-			s.append("import javax.swing.*;\n");
-			s.append("import javax.swing.plaf.*;\n");
-			s.append("import java.awt.*;\n");
-			s.append("public class ").append(cls).append(" {\n");
-			s.append("\tpublic static void loadTheme() {\n");
-			s.append(statements);
-			s.append("\t}\n}");
-			
-			CompilationTask task = compiler.getTask(null, null, null, null, null,
-					Arrays.asList(new MemoryFileObject(cls, s.toString())));
-			boolean success = task.call();
-			if (!success)
-				return CodeTransfer.error("Unable to compile code.");
-			try {
-				Class.forName(cls).getDeclaredMethod("loadTheme", (Class[])null)
-					.invoke(null, (Object[])null);
-				File file = new File(".", cls.replace('.', File.separatorChar).concat(".class"));
-				if (file.exists())
-					file.delete();
-			} catch (Exception x) {
-				return CodeTransfer.error(x.getClass().getSimpleName() + ": " + x.getMessage());
-			}
+			return doImport(statements.split(";"));
+//			JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+//			if (compiler == null)
+//				return doImport(statements.split(";"), true, UIManager.getDefaults());
+//			StringBuilder s = new StringBuilder(statements.length()+200);
+//			String cls = "NimbusTheme";
+//			s.append("import javax.swing.*;\n");
+//			s.append("import javax.swing.plaf.*;\n");
+//			s.append("import java.awt.*;\n");
+//			s.append("public class ").append(cls).append(" {\n");
+//			s.append("\tpublic static void loadTheme() {\n");
+//			s.append(statements);
+//			s.append("\t}\n}");
+//			
+//			CompilationTask task = compiler.getTask(null, null, null, null, null,
+//					Arrays.asList(new MemoryFileObject(cls, s.toString())));
+//			boolean success = task.call();
+//			if (!success)
+//				return CodeTransfer.error("Unable to compile code.");
+//			try {
+//				Class.forName(cls).getDeclaredMethod("loadTheme", (Class[])null)
+//					.invoke(null, (Object[])null);
+//				File file = new File(".", cls.replace('.', File.separatorChar).concat(".class"));
+//				if (file.exists())
+//					file.delete();
+//			} catch (Exception x) {
+//				return CodeTransfer.error(x.getClass().getSimpleName() + ": " + x.getMessage());
+//			}
 		}
 		return true;
 	}
 	
-	static boolean importThemeFromFile(File file) throws IOException {
+	boolean exportThemeToFile(File file, String pkg, String cls, String mtd, boolean tabs) throws IOException {
+		BufferedWriter writer = new BufferedWriter(new FileWriter(file));
+		if (pkg != null && !pkg.isEmpty()) {
+			writer.write("package ");
+			writer.write(pkg);
+			writer.write(';');
+			writer.newLine();
+			writer.newLine();
+		}
+		writer.write("import javax.swing.*;");
+		writer.newLine();
+//		writer.write("import javax.swing.plaf.*;");
+//		writer.newLine();
+		writer.write("import java.awt.*;");
+		writer.newLine();
+		writer.newLine();
+		writer.write("public class ");
+		writer.write(cls);
+		writer.write(" {");
+		writer.newLine();
+		String indent = tabs ? "\t" : "    ";
+		writer.write(indent);
+		writer.write("public static void ");
+		writer.write(mtd);
+		writer.write("() {");
+		writer.newLine();
+		doExport(writer, tabs ? "\t\t" : "\t");
+		writer.write(indent);
+		writer.write('}');
+		writer.newLine();
+		writer.write('}');
+		writer.flush();
+		writer.close();
+		return true;
+	}
+	
+	static String[] getStatements(File file) throws IOException {
 		FileReader reader = new FileReader(file);
 		int len = (int)file.length();
 		char[] c = new char[len+1];
 		len = 0;
-		for (int r, l=c.length; (r=reader.read(c, len, l))>=0;) {
-			len += r;
-			l -= r;
+		try {
+			for (int r, l=c.length; (r=reader.read(c, len, l))>=0;) {
+				len += r;
+				l -= r;
+			}
+		} finally {
+			reader.close();
 		}
-		reader.close();
 		String java = new String(c, 0, len);
 		Matcher matcher = Pattern.compile("UIManager\\.put[^;]+").matcher(java);
 		ArrayList<String> statements = new ArrayList<String>();
 		while (matcher.find())
 			statements.add(matcher.group());
-		return doImport(statements.toArray(new String[statements.size()]));
+		return statements.toArray(new String[statements.size()]);
 	}
+	
 
 	/**
 	 * @param statements an array of statements to interpret
 	 * @return true if all statements were successfully interpreted
 	 */
-	private static boolean doImport(String[] statements) {
+	boolean doImport(String[] statements) {
+		ArrayList<Object> error = new ArrayList<Object>();
+		LinkedHashMap<Object,Object> map = new LinkedHashMap<Object,Object>();
+		doImport(statements, error, map);
+		if (map.isEmpty())
+			return error("No valid statements were found.");
+		if (!error.isEmpty()) {
+			if (!dialog(
+					"The following statements were not recognized:",
+					error,
+					"Continue importing the recognized statements?", true))
+				return false;
+		}
+		error.clear();
+		nextEntry: for (Entry<Object,Object> entry : map.entrySet()) {
+			Object key = entry.getKey();
+			for (UITableModel model : models) {
+				int row = model.indexOfKey(key);
+				if (row >= 0) {
+					model.setValueAt(entry.getValue(), row, UITableModel.VALUE_COLUMN);
+					continue nextEntry;
+				}
+			}
+			error.add(key);
+		}
+		if (!error.isEmpty())
+			return dialog("The following keys were not found:", error, null, false);
+		return true;
+	}
+	
+	static void doImport(String[] statements, List<Object> error, Map<Object,Object> map) {
 		Matcher matcher = Pattern.compile(
-				"\\QUIManager.put(\\E\"([^\"]+)\",\\s*(.+)\\s*\\)$").matcher("");
-		ArrayList<String> error = new ArrayList<String>();
-		LinkedHashMap<String,Object> map = new LinkedHashMap<String,Object>();
+			"\\QUIManager.put(\\E\"([^\"]+)\",\\s*(.+)\\s*\\)$").matcher("");
 		for (String statement : statements) {
 			matcher.reset(statement);
 			if (matcher.find()) {
@@ -531,7 +579,9 @@ class CodeTransfer implements ActionListener, ChangeListener {
 								if (p.charAt(p.length()-1) != '"')
 									throw new Exception();
 								types[i] = String.class;
-								args[i] = p.substring(1, p.length()-1);
+								// create a new string to tear off the baggage
+								// from the statement's char array
+								args[i] = new String(p.substring(1, p.length()-1));
 							} else if (p.charAt(0) == 'F') {
 								p = p.replace("\\s+", "");
 								types[i] = int.class;
@@ -573,7 +623,7 @@ class CodeTransfer implements ActionListener, ChangeListener {
 							throw new Exception();
 						}
 					} else if (value.charAt(0) == '"' && value.charAt(value.length()-1) == '"') {
-						map.put(key, value.substring(1, value.length()-1));
+						map.put(key, new String(value.substring(1, value.length()-1)));
 					} else {
 						throw new Exception();
 					}
@@ -590,19 +640,16 @@ class CodeTransfer implements ActionListener, ChangeListener {
 			}
 			error.add(statement);
 		}
-		if (map.isEmpty())
-			return error("No valid statements were found.");
-		if (!error.isEmpty()) {
-			JPanel message = new JPanel(new BorderLayout());
-			message.add(new JLabel("The following statements were not recognized:"), BorderLayout.NORTH);
-			message.add(new JScrollPane(new JList(error.toArray())), BorderLayout.CENTER);
-			message.add(new JLabel("Continue importing the recognized statements?"), BorderLayout.SOUTH);
-			if (!confirm(message))
-				return false;
-		}
-		for (Entry<String,Object> entry : map.entrySet())
-			UIManager.put(entry.getKey(), entry.getValue());
-		return true;
+	}
+	
+	private static boolean dialog(String north, List<Object> error, String south, boolean confirm) {
+		JPanel message = new JPanel(new BorderLayout());
+		if (north != null)
+			message.add(new JLabel(north), BorderLayout.NORTH);
+		message.add(new JScrollPane(new JList(error.toArray())), BorderLayout.CENTER);
+		if (south != null)
+			message.add(new JLabel(south), BorderLayout.SOUTH);
+		return confirm ? confirm(message) : error(message);
 	}
 
 	/**
@@ -619,7 +666,7 @@ class CodeTransfer implements ActionListener, ChangeListener {
 	 * @param msg error message
 	 * @return always returns false
 	 */
-	private static boolean error(String msg) {
+	private static boolean error(Object msg) {
 		JOptionPane.showMessageDialog(
 				null, msg, "Error", JOptionPane.ERROR_MESSAGE);
 		return false;

@@ -28,6 +28,9 @@ class UIDefaultsRenderer extends JComponent implements TableCellRenderer {
 	int row = -1;
 	boolean selected = false;
 	
+	boolean needsFocus;
+	
+	
 	@Override
 	public Component getTableCellRendererComponent(JTable tbl,
 			Object val, boolean isSelected, boolean hasFocus, int row,
@@ -37,9 +40,12 @@ class UIDefaultsRenderer extends JComponent implements TableCellRenderer {
 		type = mdl.getType(tbl.convertRowIndexToModel(row));
 		this.row = row;
 		selected = isSelected;
+		needsFocus = type == Type.Painter &&
+			mdl.getKey(row).indexOf("Focused") >= 0;
 		return this;
 	}
 	
+	@Override
 	protected void paintComponent(Graphics g) {
 		if (selected) {
 			g.setColor(UIManager.getColor("Table[Enabled+Selected].textBackground"));
