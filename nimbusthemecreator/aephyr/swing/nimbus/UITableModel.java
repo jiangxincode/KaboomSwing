@@ -1,28 +1,49 @@
 package aephyr.swing.nimbus;
 
 import java.awt.Font;
+import java.io.Serializable;
+import java.rmi.RemoteException;
 import java.util.Arrays;
 
 import javax.swing.UIDefaults;
 import javax.swing.UIManager;
+import javax.swing.plaf.ColorUIResource;
 import javax.swing.table.AbstractTableModel;
 
+
 public class UITableModel extends AbstractTableModel {
-	
-	static final int VALUE_COLUMN = 2;
+
+	private static class ValueElement {
+		
+		ValueElement(Object val, Object def) {
+			value = val;
+			defaultValue = def;
+		}
+		
+		Object value;
+		
+		Object defaultValue;
+		
+	}
+
+	static final int KEY_COLUMN_INDEX = 0;
+	static final int TYPE_COLUMN_INDEX = 1;
+	static final int VALUE_COLUMN_INDEX = 2;
+	static final int DEFAULT_COLUMN_INDEX = 3;
 	
 	UITableModel(String[] kys) {
 		this(kys, new Type[kys.length]);
 	}
+	
 	UITableModel(String[] kys, Type[] tys) {
 		keys = kys;
 		types = tys;
-		values = new Object[kys.length];
+		values = new ValueElement[kys.length];
 	}
 	
 	private String[] keys;
 	private Type[] types;
-	private Object[] values;
+	private ValueElement[] values;
 
 	int indexOfKey(Object key) {
 		String[] k = keys;
@@ -40,10 +61,10 @@ public class UITableModel extends AbstractTableModel {
 	@Override
 	public String getColumnName(int col) {
 		switch (col) {
-		case 0: return "Key";
-		case 1: return "Type";
-		case VALUE_COLUMN: return "Value";
-		case 3: return "Default";
+		case KEY_COLUMN_INDEX: return "Key";
+		case TYPE_COLUMN_INDEX: return "Type";
+		case VALUE_COLUMN_INDEX: return "Value";
+		case DEFAULT_COLUMN_INDEX: return "Default";
 		}
 		throw new IllegalArgumentException();
 	}
@@ -51,7 +72,7 @@ public class UITableModel extends AbstractTableModel {
 	@Override
 	public Class<?> getColumnClass(int col) {
 		switch (col) {
-		case 3: return Boolean.class;
+		case DEFAULT_COLUMN_INDEX: return Boolean.class;
 		}
 		return Object.class;
 	}
@@ -64,10 +85,10 @@ public class UITableModel extends AbstractTableModel {
 	@Override
 	public Object getValueAt(int row, int col) {
 		switch (col) {
-		case 0: return getKey(row);
-		case 1: return getType(row);
-		case VALUE_COLUMN: return getValue(row);
-		case 3: return isDefault(row);
+		case KEY_COLUMN_INDEX: return getKey(row);
+		case TYPE_COLUMN_INDEX: return getType(row);
+		case VALUE_COLUMN_INDEX: return getValue(row);
+		case DEFAULT_COLUMN_INDEX: return isDefault(row);
 		}
 		throw new IllegalArgumentException();
 	}
@@ -77,55 +98,125 @@ public class UITableModel extends AbstractTableModel {
 	}
 	
 	Type getType(int row) {
-		if (types[row] == null)
-			types[row] = Type.getType(UIManager.get(keys[row]));
+		if (types[row] == null) {
+			RemoteUIDefaults def = Creator.getUIDefaults();
+			if (def != null) {
+				try {
+					types[row] = Type.valueOf(def.getTypeName(keys[row]));
+				} catch (RemoteException e) {
+					e.printStackTrace();
+				}
+			}
+			if (types[row] == null)
+				types[row] = Type.getType(UIManager.get(keys[row]));
+		}
 		return types[row];
 	}
 	
 	Object getValue(int row) {
-		if (values[row] == null)
-			values[row] = UIManager.get(keys[row]);
-		return values[row];
+		ValueElement element = values[row];
+		Object value;
+		if (element != null) {
+			value = element.value;
+		} else {
+			RemoteUIDefaults def = Creator.getUIDefaults();
+			if (def != null) {
+				try {
+					Object defaultValue;
+					switch (getType(row)) {
+					case Color:
+						value = def.getColor(keys[row], false);
+						defaultValue = def.getColor(keys[row], true);
+						break;
+					case Painter: case Icon:
+						value = def.getImage(keys[row]);
+						defaultValue = null;
+						break;
+					default:
+						value = def.get(keys[row], false);
+						if (value != null) {
+							defaultValue = def.get(keys[row], true);
+						} else {
+							value = UIManager.get(keys[row]);
+							defaultValue = null;
+						}
+						break;
+					}
+					values[row] = new ValueElement(value, defaultValue);
+				} catch (RemoteException e) {
+					e.printStackTrace();
+					value = UIManager.get(keys[row]);
+				}
+			} else {
+				value = UIManager.get(keys[row]);
+			}
+		}
+		return value;
 	}
 
 	boolean isDefault(int row) {
-		if (values[row] == null)
+		Object value = getValue(row);
+		ValueElement element = values[row];
+		if (element == null || element.defaultValue == null)
 			return true;
-		return values[row].equals(
-				UIManager.getLookAndFeelDefaults().get(keys[row]));
+		return value.equals(element.defaultValue);
 	}
 	
 	@Override
 	public boolean isCellEditable(int row, int col) {
-		return col == 2 || col == 3;
+		if (col == DEFAULT_COLUMN_INDEX)
+			return true;
+		if (col == VALUE_COLUMN_INDEX)
+			return getType(row).hasChooser();
+		return false;
 	}
 	
-	// Font.equals() is too sensitive, so use this.
-	private boolean fontEquals(Font a, Font b) {
-		return a.getSize2D() == b.getSize2D() &&
-			a.getStyle() == b.getStyle() && 
-			a.getFamily().equals(b.getFamily());
+	private void updateValue(RemoteUIDefaults def, int row) throws RemoteException {
+		ValueElement element = values[row];
+		if (element != null) {
+			switch (getType(row)) {
+			case Color:
+				element.value = def.getColor(keys[row], false);
+				element.defaultValue = def.getColor(keys[row], true);
+				break;
+			case Painter: case Icon:
+				element.value = def.getImage(keys[row]);
+				break;
+			default:
+				element.value = def.get(keys[row], false);
+				break;
+			}
+		}
 	}
-
+	
 	@Override
 	public void setValueAt(Object aValue, int row, int col) {
-		switch (col) {
-		case 2:
-			Object def = UIManager.getLookAndFeel().getDefaults().get(keys[row]);
-			if ((getType(row) == Type.Font && fontEquals((Font)aValue, (Font)def)) || aValue.equals(def)) {
-				values[row] = def;
-			} else {
-				values[row] = aValue;
+		RemoteUIDefaults def = Creator.getUIDefaults();
+		if (def != null) {
+			try {
+				switch (col) {
+				case VALUE_COLUMN_INDEX:
+					def.put(keys[row], (Serializable)aValue);
+					updateValue(def, row);
+					fireTableCellUpdated(row, DEFAULT_COLUMN_INDEX);
+					break;
+				case DEFAULT_COLUMN_INDEX:
+					if (aValue == Boolean.TRUE) {
+						def.put(keys[row], null);
+						updateValue(def, row);
+						fireTableCellUpdated(row, VALUE_COLUMN_INDEX);
+					}
+					break;
+				}
+			} catch (RemoteException e) {
+				e.printStackTrace();
 			}
-			fireTableCellUpdated(row, 3);
-			break;
-		case 3:
-			if (aValue == Boolean.TRUE) {
-				values[row] = UIManager.getLookAndFeelDefaults().get(keys[row]);
-				fireTableCellUpdated(row, 2);
-			}
-			break;
 		}
+	}
+
+	void clearCache() {
+		values = new ValueElement[keys.length];
+		fireTableRowsUpdated(0, getRowCount()-1);
 	}
 
 }

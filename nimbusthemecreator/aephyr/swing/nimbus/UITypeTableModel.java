@@ -1,5 +1,7 @@
 package aephyr.swing.nimbus;
 
+import java.util.Arrays;
+
 
 public class UITypeTableModel extends UITableModel {
 	
@@ -11,7 +13,7 @@ public class UITypeTableModel extends UITableModel {
 	
 	private Type type;
 	private boolean editable;
-	
+
 	@Override
 	Type getType(int row) {
 		return type;
@@ -26,5 +28,6 @@ public class UITypeTableModel extends UITableModel {
 	public boolean isCellEditable(int row, int col) {
 		return editable ? super.isCellEditable(row, col) : false;
 	}
+	
 
 }

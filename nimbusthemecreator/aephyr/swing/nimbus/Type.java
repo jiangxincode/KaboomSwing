@@ -6,46 +6,55 @@ import java.awt.Font;
 import java.awt.Insets;
 
 import javax.swing.Icon;
+import javax.swing.JButton;
+import javax.swing.plaf.synth.SynthLookAndFeel;
 //import javax.swing.Painter; // 1.7
 import com.sun.java.swing.Painter; // 1.6
 
+import aephyr.swing.nimbus.ValueChooser.*;
 
 enum Type {
-	Color(ValueChooser.ColorChooser.class),
-	Painter(null),
-	Insets(ValueChooser.InsetsChooser.class),
-	Font(ValueChooser.FontChooser.class),
-	Boolean(ValueChooser.BooleanChooser.class),
-	Integer(ValueChooser.IntegerChooser.class),
-	String(ValueChooser.StringChooser.class),
-	Icon(null),
-	Dimension(ValueChooser.DimensionChooser.class),
-	Object(null);
-	
-	private Type(Class<? extends ValueChooser> cls) {
-		chooserClass = cls;
-	}
+	Color,
+	Painter,
+	Insets,
+	Font,
+	Boolean,
+	Integer,
+	String,
+	Icon,
+	Dimension,
+	Object;
 	
 	private ValueChooser chooser;
-	private Class<? extends ValueChooser> chooserClass;
 	
 	ValueChooser getValueChooser() {
 		if (chooser == null) {
-			if (chooserClass == null)
-				return null;
-			try {
-				chooser = chooserClass.newInstance();
-			} catch (Exception e) {
-				e.printStackTrace();
-				chooserClass = null;
-				return null;
+			switch (this) {
+			case Color: chooser = new ColorChooser(); break;
+			case Painter: break;
+			case Insets: chooser = new InsetsChooser(); break;
+			case Font: chooser = new FontChooser(); break;
+			case Boolean: chooser = new BooleanChooser(); break;
+			case Integer: chooser = new IntegerChooser(); break;
+			case String: chooser = new StringChooser(); break;
+			case Icon: break;
+			case Dimension: chooser = new DimensionChooser(); break;
 			}
 		}
 		return chooser;
 	}
 	
+	boolean hasChooser() {
+		switch (this) {
+		case Painter:
+		case Icon:
+		case Object:
+			return false;
+		}
+		return true;
+	}
 	
-	static Type getType(Object obj) {
+	static Type getType(Object obj) {		
 		if (obj instanceof Color) {
 			return Color;
 		} else if (obj instanceof Painter<?>) {

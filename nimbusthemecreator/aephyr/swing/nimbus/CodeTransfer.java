@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.net.URI;
+import java.rmi.RemoteException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -56,6 +57,8 @@ import javax.tools.JavaCompiler.CompilationTask;
 
 class CodeTransfer implements ActionListener, ChangeListener {
 	
+	static final File THEME_FILE = new File("Theme.txt");
+	
 	private static final String LOCATION_EXPORT = "Save to Directory";
 	private static final String LOCATION_IMPORT = "Open File";
 	private static final String DIALOG_EXPORT = "Export";
@@ -67,14 +70,14 @@ class CodeTransfer implements ActionListener, ChangeListener {
 	private static final int FILE_TAB = 0;
 	private static final int TEXT_TAB = 1;
 	
-	CodeTransfer(UITableModel...mdls) {
-		models = mdls;
+	CodeTransfer() {
 	}
 	
-	private UITableModel[] models;
 	
 	private JDialog dialog;
+	
 	private JTabbedPane tabs;
+	
 	private boolean isExport;
 	
 	private JComponent options;
@@ -126,6 +129,8 @@ class CodeTransfer implements ActionListener, ChangeListener {
 	}
 	
 	private void maybeInitializeDialog(JFrame frame) {
+		if (dialog != null)
+			return;
 		JLabel pkgLabel = new JLabel("Package Name:");
 		JLabel clsLabel = new JLabel("Class Name:");
 		JLabel mtdLabel = new JLabel("Method Name:");
@@ -225,11 +230,13 @@ class CodeTransfer implements ActionListener, ChangeListener {
 	public void stateChanged(ChangeEvent e) {
 		if (isExport && !validTextArea && tabs.getSelectedIndex() == TEXT_TAB) {
 			validTextArea = true;
-			StringWriter writer = new StringWriter();
 			try {
-				doExport(writer, null);
-				text.setText(writer.toString());
-			} catch (IOException x) {}
+				RemoteUIDefaults def = Creator.getUIDefaults();
+				if (def != null)
+					text.setText(def.export());
+			} catch (RemoteException x) {
+				x.printStackTrace();
+			}
 		}
 	}
 	
@@ -264,6 +271,9 @@ class CodeTransfer implements ActionListener, ChangeListener {
 	 * @return true if exportation was successful
 	 */
 	private boolean doExport() {
+		RemoteUIDefaults def = Creator.getUIDefaults();
+		if (def == null)
+			throw new IllegalStateException();
 		if (tabs.getSelectedIndex() == FILE_TAB) {
 			String pkg = packageField.getText();
 			String cls = classField.getText();
@@ -295,108 +305,12 @@ class CodeTransfer implements ActionListener, ChangeListener {
 							"\nOverwrite?"))
 						return false;
 				}
-				return exportThemeToFile(file, pkg, cls, mtd, indentTabs.isSelected());
+				def.exportTo(file, pkg, cls, mtd, indentTabs.isSelected());
 			} catch (IOException x) {
 				return CodeTransfer.error("IOException: "+x.getMessage());
 			}
 		}
 		return true;
-	}
-	
-
-	void doExport(Writer writer, String prefix) throws IOException {
-		BufferedWriter buf = writer instanceof BufferedWriter ? (BufferedWriter)writer : null;
-		for (UITableModel model : models) {
-			for (int i=0, j=model.getRowCount(); i<j; i++) {
-				if (model.isDefault(i))
-					continue;
-				String key = model.getKey(i);
-				Object value = model.getValue(i);
-				Type type = Type.getType(value);
-				switch (type) {
-				// unsupported types
-				case Painter: case Icon: case Object:
-					continue;
-				}
-				if (prefix != null)
-					writer.write(prefix);
-				writer.write("UIManager.put(\"");
-				writer.write(key.toString());
-				switch (type) {
-				case Color:
-					Color color = (Color)value;
-//				writer.write("\", new ColorUIResource(0x");
-					writer.write("\", new Color(0x");
-					writer.write(Integer.toHexString(color.getRGB() & 0xffffff));
-					writer.write("));");
-					break;
-				case Painter:
-					throw new IllegalStateException();
-				case Insets:
-					Insets insets = (Insets)value;
-//				writer.write("\", new InsetsUIResource(");
-					writer.write("\", new Insets(");
-					writer.write(Integer.toString(insets.top));
-					writer.write(", ");
-					writer.write(Integer.toString(insets.left));
-					writer.write(", ");
-					writer.write(Integer.toString(insets.bottom));
-					writer.write(", ");
-					writer.write(Integer.toString(insets.right));
-					writer.write("));");
-					break;
-				case Font:
-					Font font = (Font)value;
-//				writer.write("\", new FontUIResource(\"");
-					writer.write("\", new Font(\"");
-					writer.write(font.getFamily());
-					writer.write("\", ");
-					String style = font.isBold() ? "Font.BOLD" : null;
-					style = font.isItalic() ?
-							style == null ? "Font.ITALIC" : style + " | " + "Font.ITALIC"
-									: "Font.PLAIN";
-					writer.write(style);
-					writer.write(", ");
-					writer.write(font.getSize());
-					writer.write("));");
-					break;
-				case Boolean:
-					writer.write("\", Boolean.");
-					writer.write(value == Boolean.TRUE ? "TRUE" : "FALSE");
-					writer.write(");");
-					break;
-				case Integer:
-					writer.write("\", new Integer(");
-					writer.write(value.toString());
-					writer.write("));");
-					break;
-				case String:
-					writer.write("\", \"");
-					writer.write(value.toString());
-					writer.write('"');
-					writer.write(");");
-					break;
-				case Icon:
-					throw new IllegalStateException();
-				case Dimension:
-					Dimension size = (Dimension)value;
-					writer.write("\", new Dimension(");
-//				writer.write("\", new DimensionUIResource(");
-					writer.write(Integer.toString(size.width));
-					writer.write(", ");
-					writer.write(Integer.toString(size.height));
-					writer.write("));");
-					break;
-				case Object:
-					throw new IllegalStateException();
-				}
-				if (buf != null) {
-					buf.newLine();
-				} else {
-					writer.write('\n');
-				}
-			}
-		}
 	}
 	
 	
@@ -404,84 +318,29 @@ class CodeTransfer implements ActionListener, ChangeListener {
 	 * @return true if importation was successful
 	 */
 	private boolean doImport() {
+		String[] statements;
 		if (tabs.getSelectedIndex() == FILE_TAB) {
 			try {
 				File file = new File(location.getText());
 				if (!file.isFile())
 					return CodeTransfer.error("Invalid File:\n\t" + file.getCanonicalPath());
-				return doImport(getStatements(file));
+				statements = getStatements(file);
 			} catch (IOException x) {
 				return CodeTransfer.error("IOException: "+x.getMessage());
 			}
 		} else if (tabs.getSelectedIndex() == TEXT_TAB) {
-			String statements = text.getText();
-			return doImport(statements.split(";"));
-//			JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-//			if (compiler == null)
-//				return doImport(statements.split(";"), true, UIManager.getDefaults());
-//			StringBuilder s = new StringBuilder(statements.length()+200);
-//			String cls = "NimbusTheme";
-//			s.append("import javax.swing.*;\n");
-//			s.append("import javax.swing.plaf.*;\n");
-//			s.append("import java.awt.*;\n");
-//			s.append("public class ").append(cls).append(" {\n");
-//			s.append("\tpublic static void loadTheme() {\n");
-//			s.append(statements);
-//			s.append("\t}\n}");
-//			
-//			CompilationTask task = compiler.getTask(null, null, null, null, null,
-//					Arrays.asList(new MemoryFileObject(cls, s.toString())));
-//			boolean success = task.call();
-//			if (!success)
-//				return CodeTransfer.error("Unable to compile code.");
-//			try {
-//				Class.forName(cls).getDeclaredMethod("loadTheme", (Class[])null)
-//					.invoke(null, (Object[])null);
-//				File file = new File(".", cls.replace('.', File.separatorChar).concat(".class"));
-//				if (file.exists())
-//					file.delete();
-//			} catch (Exception x) {
-//				return CodeTransfer.error(x.getClass().getSimpleName() + ": " + x.getMessage());
-//			}
+			statements = text.getText().split(";");
+		} else {
+			throw new IllegalStateException();
 		}
-		return true;
+		try {
+			return Creator.getUIDefaults().importStatements(statements);
+		} catch (RemoteException e) {
+			e.printStackTrace();
+			return false;
+		}
 	}
 	
-	boolean exportThemeToFile(File file, String pkg, String cls, String mtd, boolean tabs) throws IOException {
-		BufferedWriter writer = new BufferedWriter(new FileWriter(file));
-		if (pkg != null && !pkg.isEmpty()) {
-			writer.write("package ");
-			writer.write(pkg);
-			writer.write(';');
-			writer.newLine();
-			writer.newLine();
-		}
-		writer.write("import javax.swing.*;");
-		writer.newLine();
-//		writer.write("import javax.swing.plaf.*;");
-//		writer.newLine();
-		writer.write("import java.awt.*;");
-		writer.newLine();
-		writer.newLine();
-		writer.write("public class ");
-		writer.write(cls);
-		writer.write(" {");
-		writer.newLine();
-		String indent = tabs ? "\t" : "    ";
-		writer.write(indent);
-		writer.write("public static void ");
-		writer.write(mtd);
-		writer.write("() {");
-		writer.newLine();
-		doExport(writer, tabs ? "\t\t" : "\t");
-		writer.write(indent);
-		writer.write('}');
-		writer.newLine();
-		writer.write('}');
-		writer.flush();
-		writer.close();
-		return true;
-	}
 	
 	static String[] getStatements(File file) throws IOException {
 		FileReader reader = new FileReader(file);
@@ -509,7 +368,7 @@ class CodeTransfer implements ActionListener, ChangeListener {
 	 * @param statements an array of statements to interpret
 	 * @return true if all statements were successfully interpreted
 	 */
-	boolean doImport(String[] statements) {
+	static boolean doImport(String[] statements) {
 		ArrayList<Object> error = new ArrayList<Object>();
 		LinkedHashMap<Object,Object> map = new LinkedHashMap<Object,Object>();
 		doImport(statements, error, map);
@@ -522,20 +381,8 @@ class CodeTransfer implements ActionListener, ChangeListener {
 					"Continue importing the recognized statements?", true))
 				return false;
 		}
-		error.clear();
-		nextEntry: for (Entry<Object,Object> entry : map.entrySet()) {
-			Object key = entry.getKey();
-			for (UITableModel model : models) {
-				int row = model.indexOfKey(key);
-				if (row >= 0) {
-					model.setValueAt(entry.getValue(), row, UITableModel.VALUE_COLUMN);
-					continue nextEntry;
-				}
-			}
-			error.add(key);
-		}
-		if (!error.isEmpty())
-			return dialog("The following keys were not found:", error, null, false);
+		for (Entry<Object,Object> entry : map.entrySet())
+			UIManager.put(entry.getKey(), entry.getValue());
 		return true;
 	}
 	
@@ -691,4 +538,146 @@ class CodeTransfer implements ActionListener, ChangeListener {
 		}
 	}
 	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	static void doExport(File file, String pkg, String cls, String mtd, boolean tabs) throws IOException {
+		BufferedWriter writer = new BufferedWriter(new FileWriter(file));
+		if (pkg != null) {
+			writer.write("package ");
+			writer.write(pkg);
+			writer.write(';');
+			writer.newLine();
+			writer.newLine();
+		}
+		String prefix = null;
+		if (cls != null) {
+			writer.write("import javax.swing.*;");
+			writer.newLine();
+			writer.write("import java.awt.*;");
+			writer.newLine();
+			writer.newLine();
+			writer.write("public class ");
+			writer.write(cls);
+			writer.write(" {");
+			writer.newLine();
+			writer.write(tabs ? "\t" : "    ");
+			writer.write("public static void ");
+			writer.write(mtd);
+			writer.write("() {");
+			writer.newLine();
+			prefix = tabs ? "\t\t" : "\t";
+		}
+		doExport(writer, null);
+		if (cls != null) {
+			writer.write(tabs ? "\t" : "    ");
+			writer.write('}');
+			writer.newLine();
+			writer.write('}');
+		}
+		writer.close();
+	}
+	
+	static void doExport(Writer writer, String prefix) throws IOException {
+		BufferedWriter buf = writer instanceof BufferedWriter ? (BufferedWriter)writer : null;
+		for (Object ky : UIManager.getDefaults().keySet()) {
+			if (!(ky instanceof String))
+				continue;
+			String key = (String)ky;
+			Object value = UIManager.get(ky);
+			Type type = Type.getType(value);
+				switch (type) {
+				// unsupported types
+				case Painter: case Icon: case Object:
+					continue;
+				}
+				if (prefix != null)
+					writer.write(prefix);
+				writer.write("UIManager.put(\"");
+				writer.write(key.toString());
+				switch (type) {
+				case Color:
+					Color color = (Color)value;
+//				writer.write("\", new ColorUIResource(0x");
+					writer.write("\", new Color(0x");
+					writer.write(Integer.toHexString(color.getRGB() & 0xffffff));
+					writer.write("));");
+					break;
+				case Painter:
+					throw new IllegalStateException();
+				case Insets:
+					Insets insets = (Insets)value;
+//				writer.write("\", new InsetsUIResource(");
+					writer.write("\", new Insets(");
+					writer.write(Integer.toString(insets.top));
+					writer.write(", ");
+					writer.write(Integer.toString(insets.left));
+					writer.write(", ");
+					writer.write(Integer.toString(insets.bottom));
+					writer.write(", ");
+					writer.write(Integer.toString(insets.right));
+					writer.write("));");
+					break;
+				case Font:
+					Font font = (Font)value;
+//				writer.write("\", new FontUIResource(\"");
+					writer.write("\", new Font(\"");
+					writer.write(font.getFamily());
+					writer.write("\", ");
+					String style = font.isBold() ? "Font.BOLD" : null;
+					style = font.isItalic() ?
+							style == null ? "Font.ITALIC" : style + " | " + "Font.ITALIC"
+									: "Font.PLAIN";
+					writer.write(style);
+					writer.write(", ");
+					writer.write(font.getSize());
+					writer.write("));");
+					break;
+				case Boolean:
+					writer.write("\", Boolean.");
+					writer.write(value == Boolean.TRUE ? "TRUE" : "FALSE");
+					writer.write(");");
+					break;
+				case Integer:
+					writer.write("\", new Integer(");
+					writer.write(value.toString());
+					writer.write("));");
+					break;
+				case String:
+					writer.write("\", \"");
+					writer.write(value.toString());
+					writer.write('"');
+					writer.write(");");
+					break;
+				case Icon:
+					throw new IllegalStateException();
+				case Dimension:
+					Dimension size = (Dimension)value;
+					writer.write("\", new Dimension(");
+//				writer.write("\", new DimensionUIResource(");
+					writer.write(Integer.toString(size.width));
+					writer.write(", ");
+					writer.write(Integer.toString(size.height));
+					writer.write("));");
+					break;
+				case Object:
+					throw new IllegalStateException();
+				}
+				if (buf != null) {
+					buf.newLine();
+				} else {
+					writer.write('\n');
+				}
+			}
+	}
 }

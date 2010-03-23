@@ -13,8 +13,8 @@ import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableModel;
 
-public class UITable extends JTable implements ComponentListener {
-
+class UITable extends JTable implements ComponentListener {
+	
 	UITable(TableModel mdl, TableColumnModel clm) {
 		super(mdl, clm);
 	}
@@ -66,14 +66,15 @@ public class UITable extends JTable implements ComponentListener {
 	public void componentResized(ComponentEvent e) {
 		JViewport port = (JViewport)e.getSource();
 		TableColumnModel columns = getColumnModel();
+		int keyColumnIndex = convertColumnIndexToView(UITableModel.KEY_COLUMN_INDEX);
 		int width = port.getWidth();
-		Insets in = port.getInsets();
-		width -= in.left + in.right;
-		for (int i=columns.getColumnCount(); --i>0;)
-			width -= columns.getColumn(i).getWidth();
+		for (int col=columns.getColumnCount(); --col>=0;) {
+			if (col != keyColumnIndex)
+				width -= columns.getColumn(col).getWidth();
+		}
 		if (width < 210)
 			width = 210;
-		TableColumn col = columns.getColumn(0);
+		TableColumn col = columns.getColumn(keyColumnIndex);
 		if (width != col.getPreferredWidth()) {
 			col.setMinWidth(width);
 			col.setPreferredWidth(width);

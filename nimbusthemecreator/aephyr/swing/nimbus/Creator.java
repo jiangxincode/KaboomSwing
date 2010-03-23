@@ -6,6 +6,7 @@ import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.LayoutManager;
+import java.awt.Point;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
@@ -19,7 +20,14 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.PrintStream;
+import java.io.Serializable;
+import java.rmi.NotBoundException;
+import java.rmi.RemoteException;
+import java.rmi.registry.LocateRegistry;
+import java.rmi.registry.Registry;
+import java.rmi.server.UnicastRemoteObject;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -29,20 +37,29 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.DefaultRowSorter;
 import javax.swing.GroupLayout;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
+import javax.swing.JViewport;
 import javax.swing.RowFilter;
 import javax.swing.SwingUtilities;
+import javax.swing.UIDefaults;
 import javax.swing.UIManager;
-import javax.swing.GroupLayout.Alignment;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.TableColumnModelEvent;
+import javax.swing.event.TableColumnModelListener;
 import javax.swing.event.TableModelEvent;
 import javax.swing.event.TableModelListener;
 import javax.swing.plaf.ColorUIResource;
@@ -51,13 +68,15 @@ import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableModel;
 
 
-public class Creator extends WindowAdapter implements ActionListener, TableModelListener, PropertyChangeListener {
-	
+
+public class Creator extends WindowAdapter implements ActionListener, ChangeListener,
+		TableModelListener, TableColumnModelListener, PropertyChangeListener {
+
 
 	private static final int TABLE_WIDTH = 450;
 	private static final int VALUE_WIDTH = 100;
 	private static final int DEFAULT_WIDTH = 50;
-	
+
 	public static void main(String[] args) throws Exception {
 		File file = null;
 		if (args.length > 0) {
@@ -65,11 +84,16 @@ public class Creator extends WindowAdapter implements ActionListener, TableModel
 			if (!file.isFile())
 				file = null;
 		}
-		final File theme = file;
+		final Creator creator = new Creator();
+		Creator.openRemoteUIDefaults(file);
+		synchronized (Creator.class) {
+			if (defaults == null)
+				Creator.class.wait();
+		}
 		Creator.setNimbusLookAndFeel();
 		SwingUtilities.invokeLater(new Runnable() {
 			public void run() {
-				JFrame frame = new Creator(theme).createFrame();
+				JFrame frame = creator.createFrame();
 				frame.pack();
 				frame.setLocationRelativeTo(null);
 				frame.setLocation(0, frame.getY());
@@ -78,6 +102,7 @@ public class Creator extends WindowAdapter implements ActionListener, TableModel
 		});
 	}
 	
+
 	static void setNimbusLookAndFeel() {
 		try {
 			for (UIManager.LookAndFeelInfo info : UIManager.getInstalledLookAndFeels()) {
@@ -91,19 +116,54 @@ public class Creator extends WindowAdapter implements ActionListener, TableModel
 			throw new IllegalStateException(e);
 		}
 	}
+	
 
 	private JFrame frame;
+	
 	private JButton update;
+	private JCheckBox preview;
+	private int previewIndex;
+
 	private JTable primaryTable;
 	private JTable secondaryTable;
+	
 	private JTable otherTable;
 	private JComboBox keyFilter;
 	private JComboBox keyFilterMethod;
 	private JComboBox typeFilter;
-	
+	private JViewport filtersViewport;
+
 	private CodeTransfer transfer;
 	
-	private Creator(File theme) {
+	private RemoteController controllerImpl;
+
+	
+	private Creator() throws RemoteException {
+		Registry registry = LocateRegistry.createRegistry(1099);
+		controllerImpl = new RemoteController() {
+			@Override
+			public void previewClosed() throws RemoteException {
+				preview.setSelected(false);
+			}
+			@Override
+			public void ready() throws RemoteException {
+				SwingUtilities.invokeLater(new Runnable() {
+					public void run() {
+						initiateRemoteUIDefaults();
+					}
+				});
+			}
+			@Override
+			public void setTabIndex(int index) throws RemoteException {
+				previewIndex = index;
+			}
+		};
+		RemoteController controller = (RemoteController)UnicastRemoteObject.exportObject(
+				controllerImpl, 0);
+		registry.rebind(RemoteController.class.getName(), controller);
+	}
+	
+	private void init() {
 		List<String> primary = new ArrayList<String>();
 		List<String> secondary = new ArrayList<String>();
 		List<String> other = new ArrayList<String>();
@@ -138,9 +198,11 @@ public class Creator extends WindowAdapter implements ActionListener, TableModel
 				}
 			}
 		}
+
 		primaryTable = Creator.createUITable(false, 0, Type.Color, primary);
 		primaryTable.getModel().addTableModelListener(this);
 		secondaryTable = Creator.createUITable(false, 0, Type.Color, secondary);
+		secondaryTable.getModel().addTableModelListener(this);
 		otherTable = Creator.createUITable(true, 75, null, other);
 		otherTable.setAutoCreateRowSorter(true);
 		DefaultRowSorter<?,?> sorter = (DefaultRowSorter<?,?>)otherTable.getRowSorter();
@@ -163,93 +225,86 @@ public class Creator extends WindowAdapter implements ActionListener, TableModel
 		typeFilter = new JComboBox(typeArray);
 		typeFilter.setToolTipText("Filter Type Column");
 		typeFilter.addActionListener(this);
-		
-		update = new JButton("Preview");
+
+		preview = new JCheckBox("Show Preview", false);
+		update = new JButton("Update");
 		update.addActionListener(this);
 		
-		if (theme != null) {
-			try {
-				getCodeTransfer().doImport(CodeTransfer.getStatements(theme));
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-		}
-
+		baseDirty = false;
 	}
 	
-	
+
 	private JFrame createFrame() {
-		JScrollPane primary = Preview.titled(new JScrollPane(
+		init();
+		JScrollPane primary = Preview.innerTitled(new JScrollPane(
 				primaryTable, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
 				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), "Primary");
-		JScrollPane secondary = Preview.titled(new JScrollPane(
+		JScrollPane secondary = Preview.innerTitled(new JScrollPane(
 				secondaryTable, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
 				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), "Secondary");
-		
+
 		JPanel colors = new JPanel(new StackedTableLayout(3, 10, true));
 		colors.add(primary);
 		colors.add(secondary);
 		Dimension size = new Dimension(Creator.TABLE_WIDTH, primaryTable.getRowHeight()*20);
 		otherTable.setPreferredScrollableViewportSize(size);
-		
-		
+
+
 		JScrollPane other = new JScrollPane(otherTable);
 		other.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
 		JPanel otherPanel = new JPanel(null);
-		
+
 		JPanel filters = new JPanel(new FiltersLayout());
 		filters.add(keyFilter);
 		filters.add(keyFilterMethod);
 		filters.add(typeFilter);
-		otherTable.getColumnModel().getColumn(0).addPropertyChangeListener(this);
+		TableColumnModel model = otherTable.getColumnModel();
+		model.getColumn(UITableModel.KEY_COLUMN_INDEX).addPropertyChangeListener(this);
+		model.addColumnModelListener(this);
+		filtersViewport = new JViewport();
+		filtersViewport.setView(filters);
+		other.getViewport().addChangeListener(this);
 		
 		GroupLayout layout = new GroupLayout(otherPanel);
 		otherPanel.setLayout(layout);
 		layout.setHorizontalGroup(layout.createSequentialGroup()
-				.addGap(2)
-				.addGroup(layout.createParallelGroup()
-						.addComponent(filters).addComponent(other)));
+			.addGap(2)
+			.addGroup(layout.createParallelGroup()
+				.addComponent(filtersViewport).addComponent(other)));
 		final int prf = GroupLayout.PREFERRED_SIZE;
 		layout.setVerticalGroup(layout.createSequentialGroup()
-				.addGap(2).addComponent(other).addComponent(filters, prf, prf, prf));
+			.addGap(2).addComponent(other)
+			.addComponent(filtersViewport, prf, prf, prf));
 
-		JTabbedPane options = new JTabbedPane();
-		options.addTab("UI Base", colors);
-		options.addTab("UI Controls", otherPanel);
-		
+
+		JTabbedPane tabs = new JTabbedPane();
+		tabs.addTab("UI Base", colors);
+		tabs.addTab("UI Controls", otherPanel);
+		tabs.addChangeListener(this);
+
 		JButton imp = new JButton("Import");
 		imp.addActionListener(this);
 		JButton exp = new JButton("Export");
 		exp.addActionListener(this);
-		
-		JPanel body = new JPanel(null);
-		layout = new GroupLayout(body);
-		body.setLayout(layout);
-		layout.setHorizontalGroup(layout.createParallelGroup(Alignment.LEADING, false)
-			.addComponent(options)
-			.addGroup(layout.createSequentialGroup()
-				.addGap(4)
-				.addComponent(imp).addComponent(exp)
-				.addGap(0, 100, Short.MAX_VALUE)
-				.addComponent(update)));
-		layout.setVerticalGroup(layout.createSequentialGroup()
-			.addComponent(options)
-			.addGroup(layout.createBaselineGroup(false, true)
-				.addComponent(imp).addComponent(exp)
-				.addComponent(update))
-			.addGap(4));
-		
+
+		Box south = Box.createHorizontalBox();
+		south.setBorder(BorderFactory.createEmptyBorder(0, 3, 3, 3));
+		south.add(imp);
+		south.add(exp);
+		south.add(Box.createHorizontalGlue());
+		south.add(preview);
+		south.add(Box.createHorizontalStrut(3));
+		south.add(update);
+
 		frame = new JFrame(getClass().getSimpleName());
 		frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
 		frame.addWindowListener(this);
-		frame.add(body, BorderLayout.CENTER);
+		frame.add(tabs, BorderLayout.CENTER);
+		frame.add(south, BorderLayout.SOUTH);
 		return frame;
 	}
-	
-	
 
-	// ideally this behavior would be contained in a footer for JScrollPane
-	// current layout does not match table columns when the columns are reordered.
+
 	private class FiltersLayout implements LayoutManager {
 
 		@Override
@@ -257,27 +312,48 @@ public class Creator extends WindowAdapter implements ActionListener, TableModel
 
 		@Override
 		public void layoutContainer(Container parent) {
+			int keyViewIndex = otherTable.convertColumnIndexToView(
+					UITableModel.KEY_COLUMN_INDEX);
+			int typeViewIndex = otherTable.convertColumnIndexToView(
+					UITableModel.TYPE_COLUMN_INDEX);
 			TableColumnModel mdl = otherTable.getColumnModel();
-			int cw = mdl.getColumn(0).getWidth();
-			Dimension size = keyFilterMethod.getPreferredSize();
-			int kfmw = size.width;
-			int kfw = cw - kfmw - 10;
-			keyFilter.setBounds(0, 0, kfw, size.height);
-			keyFilterMethod.setBounds(kfw, 0, kfmw, size.height);
-			size = typeFilter.getPreferredSize();
-			typeFilter.setBounds(cw, 0, size.width, size.height);
+			int keyColWidth = mdl.getColumn(keyViewIndex).getWidth();
+			Dimension methodSize = keyFilterMethod.getPreferredSize();
+			int keyWidth = keyColWidth - methodSize.width - 10;
+			Dimension typeSize = typeFilter.getPreferredSize();
+			
+			int x = 0;
+			if (keyViewIndex != 0) {
+				for (int col=keyViewIndex; --col>=0;)
+					x += mdl.getColumn(col).getWidth();
+			}
+			if (typeViewIndex == keyViewIndex-1) {
+				x += typeSize.width - mdl.getColumn(typeViewIndex).getWidth();
+			}
+			keyFilter.setBounds(x, 0, keyWidth, methodSize.height);
+			keyFilterMethod.setBounds(x+keyWidth, 0, methodSize.width, methodSize.height);
+			
+			if (typeViewIndex == keyViewIndex+1) {
+				x += keyColWidth;
+			} else {
+				x = 0;
+				for (int col=typeViewIndex; --col>=0;) {
+					x += mdl.getColumn(col).getWidth();
+				}
+			}
+			typeFilter.setBounds(x, 0, typeSize.width, typeSize.height);
 		}
 
 		@Override
 		public Dimension minimumLayoutSize(Container parent) {
-			return size(300);
+			return size(otherTable.getWidth());
 		}
 
 		@Override
 		public Dimension preferredLayoutSize(Container parent) {
-			return size(Creator.TABLE_WIDTH);
+			return size(otherTable.getWidth());
 		}
-		
+
 		private Dimension size(int width) {
 			Dimension size = keyFilter.getPreferredSize();
 			size.width = width;
@@ -286,9 +362,8 @@ public class Creator extends WindowAdapter implements ActionListener, TableModel
 
 		@Override
 		public void removeLayoutComponent(Component comp) {}
-		
+
 	}
-	
 
 	private static JTable createUITable(boolean keyColumnResizable, int typeWidth, Type type,
 			List<String> lst) {
@@ -300,15 +375,15 @@ public class Creator extends WindowAdapter implements ActionListener, TableModel
 		table.setRowHeight(25);
 		TableColumnModel columns = table.getColumnModel();
 		int keyWidth = TABLE_WIDTH-typeWidth-VALUE_WIDTH-DEFAULT_WIDTH;
-		columns.getColumn(0).setMinWidth(keyWidth);
-		columns.getColumn(0).setPreferredWidth(keyWidth);
-		columns.getColumn(0).setResizable(keyColumnResizable);
-		Creator.setWidth(columns.getColumn(1), typeWidth);
-		TableColumn column = columns.getColumn(2);
+		columns.getColumn(UITableModel.KEY_COLUMN_INDEX).setMinWidth(keyWidth);
+		columns.getColumn(UITableModel.KEY_COLUMN_INDEX).setPreferredWidth(keyWidth);
+		columns.getColumn(UITableModel.KEY_COLUMN_INDEX).setResizable(keyColumnResizable);
+		Creator.setWidth(columns.getColumn(UITableModel.TYPE_COLUMN_INDEX), typeWidth);
+		TableColumn column = columns.getColumn(UITableModel.VALUE_COLUMN_INDEX);
 		Creator.setWidth(column, VALUE_WIDTH);
 		column.setCellRenderer(new UIDefaultsRenderer());
 		column.setCellEditor(new UIDefaultsEditor());
-		Creator.setWidth(columns.getColumn(3), DEFAULT_WIDTH);
+		Creator.setWidth(columns.getColumn(UITableModel.DEFAULT_COLUMN_INDEX), DEFAULT_WIDTH);
 		return table;
 	}
 	private static void setWidth(TableColumn column, int width) {
@@ -317,37 +392,66 @@ public class Creator extends WindowAdapter implements ActionListener, TableModel
 		column.setMinWidth(width);
 		column.setMaxWidth(width);
 	}
-	
 
-	
-	
-	
+
+
+	private boolean baseDirty;
+
 
 	// Event Handling
 
 	@Override
 	public void tableChanged(TableModelEvent e) {
 		if (e.getSource() == primaryTable.getModel()) {
-			UITableModel mdl = (UITableModel)secondaryTable.getModel();
-			mdl.fireTableRowsUpdated(0, mdl.getRowCount()-1);
+			((UITableModel)secondaryTable.getModel()).clearCache();
 		}
+		baseDirty = true;
 	}
 
 	@Override
 	public void propertyChange(PropertyChangeEvent e) {
 		if ("width".equals(e.getPropertyName())) {
-			JComponent c = (JComponent)keyFilter.getParent();
-			if (c != null) {
-				c.revalidate();
-				c.repaint();
-			}
+			revalidateFilterLayout();
 		}
 	}
 	
+	private void revalidateFilterLayout() {
+		JComponent c = (JComponent)keyFilter.getParent();
+		if (c != null) {
+			c.revalidate();
+			c.repaint();
+		}
+	}
+
+	@Override
+	public void columnAdded(TableColumnModelEvent e) {
+		revalidateFilterLayout();
+	}
+
+	@Override
+	public void columnMarginChanged(ChangeEvent e) {
+		revalidateFilterLayout();
+	}
+
+	@Override
+	public void columnMoved(TableColumnModelEvent e) {
+		revalidateFilterLayout();
+	}
+
+	@Override
+	public void columnRemoved(TableColumnModelEvent e) {
+		revalidateFilterLayout();
+	}
+
+	@Override
+	public void columnSelectionChanged(ListSelectionEvent e) {}
+
 	
+
 	@Override
 	public void actionPerformed(ActionEvent e) {
 		if (e.getSource() == update) {
+//			showPreview = true;
 			updateUI();
 		} else if (e.getSource() == keyFilter ||
 				e.getSource() == keyFilterMethod ||
@@ -360,16 +464,54 @@ public class Creator extends WindowAdapter implements ActionListener, TableModel
 		}
 	}
 	
+
+	@Override
+	public void stateChanged(ChangeEvent e) {
+		if (e.getSource() instanceof JViewport) {
+			JViewport port = (JViewport)e.getSource();
+			Point tablePos = port.getViewPosition();
+			Point filtersPos = filtersViewport.getViewPosition();
+			if (filtersPos.x != tablePos.x) {
+				filtersPos.x = tablePos.x;
+				filtersViewport.setViewPosition(filtersPos);
+			}
+		} else if (e.getSource() instanceof JTabbedPane) {
+			JTabbedPane tabs = (JTabbedPane)e.getSource();
+			if (baseDirty && tabs.getSelectedIndex() != 0) {
+				UITableModel mdl = (UITableModel)otherTable.getModel();
+				mdl.clearCache();
+			}
+		}
+	}
+
+	@Override
+	public void windowClosing(WindowEvent e) {
+		Thread thread = new Thread(new Runnable() {
+			public void run() {
+				closeRemoteUIDefaults(false);
+				try {
+					Registry registry = LocateRegistry.getRegistry();
+					registry.unbind(RemoteController.class.getName());
+					UnicastRemoteObject.unexportObject(controllerImpl, true);
+				} catch (RemoteException x) {
+					x.printStackTrace();
+				} catch (NotBoundException x) {
+					x.printStackTrace();
+				}
+				if (CodeTransfer.THEME_FILE.isFile())
+					CodeTransfer.THEME_FILE.delete();
+			}
+		});
+		thread.start();
+	}
+
 	private CodeTransfer getCodeTransfer() {
 		if (transfer == null)
-			transfer = new CodeTransfer(
-					(UITableModel)primaryTable.getModel(),
-					(UITableModel)secondaryTable.getModel(),
-					(UITableModel)otherTable.getModel());
+			transfer = new CodeTransfer();
 		return transfer;
 	}
 
-	
+
 	private void updateFilter() {
 		DefaultRowSorter<TableModel,Object> sorter =
 			(DefaultRowSorter<TableModel,Object>)otherTable.getRowSorter();
@@ -378,54 +520,84 @@ public class Creator extends WindowAdapter implements ActionListener, TableModel
 		if (!key.isEmpty()) {
 			Object method = keyFilterMethod.getSelectedItem();
 			if (method == "Starts With") {
-				filter = RowFilter.regexFilter('^'+Pattern.quote(key), 0);
+				filter = RowFilter.regexFilter(
+						'^'+Pattern.quote(key), UITableModel.KEY_COLUMN_INDEX);
 			} else if (method == "Ends With") {
-				filter = RowFilter.regexFilter(Pattern.quote(key)+'$', 0);
+				filter = RowFilter.regexFilter(
+						Pattern.quote(key)+'$', UITableModel.KEY_COLUMN_INDEX);
 			} else if (method == "Contains") {
-				filter = RowFilter.regexFilter(Pattern.quote(key), 0);
+				filter = RowFilter.regexFilter(
+						Pattern.quote(key), UITableModel.KEY_COLUMN_INDEX);
 			} else {
-				filter = RowFilter.regexFilter(key, 0);
+				filter = RowFilter.regexFilter(
+						key, UITableModel.KEY_COLUMN_INDEX);
 			}
 		}
 		String type = typeFilter.getSelectedItem().toString();
 		if (!type.isEmpty()) {
-			RowFilter<TableModel,Object> typeFilter = RowFilter.regexFilter('^'+type+'$', 1);
+			RowFilter<TableModel,Object> typeFilter = RowFilter.regexFilter(
+					'^'+type+'$', UITableModel.TYPE_COLUMN_INDEX);
 			filter = filter == null ? typeFilter :
 				RowFilter.<TableModel,Object>andFilter(Arrays.asList(filter, typeFilter));
 		}
 		sorter.setRowFilter(filter);
 	}
+
+
+
+	static RemoteUIDefaults getUIDefaults() {
+		return defaults;
+	}
 	
-	private Process process;
-	private int previewIndex;
+	private static RemoteUIDefaults defaults;
+	
+	private static volatile Process defaultsProcess;
+	
+	private static void closeRemoteUIDefaults(boolean doExport) {
+		Process process = defaultsProcess;
+		if (process != null) {
+			defaultsProcess = null;
+			try {
+				if (doExport)
+					defaults.exportTo(CodeTransfer.THEME_FILE, null, null, null, false);
+				OutputStream out = process.getOutputStream();
+				out.write(0);
+				out.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			try {
+				process.waitFor();
+			} catch (InterruptedException e) {}
+		}
+	}
+	
 	private void updateUI() {
-		if (process != null)
-			process.destroy();
+		if (preview.isSelected()) {
+			openRemoteUIDefaults(
+				"java", RemoteUIDefaultsImpl.class.getName(),
+				CodeTransfer.THEME_FILE.getPath(),
+				Integer.toString(frame.getX()+frame.getWidth()),
+				Integer.toString(frame.getY()),
+				Integer.toString(previewIndex));
+		} else {
+			openRemoteUIDefaults(CodeTransfer.THEME_FILE);
+		}
+	}
+	
+	private static void openRemoteUIDefaults(File theme) {
+		openRemoteUIDefaults(
+			"java", RemoteUIDefaultsImpl.class.getName(),
+			theme == null ? "" : theme.getPath());
+	}
+	
+	private static void openRemoteUIDefaults(String...cmd) {
+		closeRemoteUIDefaults(true);
 		try {
-			File file = new File("Theme.txt");
-			BufferedWriter writer = new BufferedWriter(new FileWriter(file));
-			getCodeTransfer().doExport(writer, null);
-			writer.close();
-			String[] cmd = {
-					"java",
-					Preview.class.getName(),
-					Integer.toString(frame.getX()+frame.getWidth()),
-					Integer.toString(frame.getY()),
-					Integer.toString(previewIndex)
-					
-			};
-			process = Runtime.getRuntime().exec(cmd, null, new File("."));
+			Process process = Runtime.getRuntime().exec(cmd, null, new File("."));
+			defaultsProcess = process;
 			startStreamReader(
-				new StreamReader(process.getInputStream(), System.out) {
-					@Override
-					void processLine(String line) {
-						if (line.startsWith("TabIndex:")) {
-							previewIndex = Integer.parseInt(line.substring(9));
-						} else {
-							super.processLine(line);
-						}
-					}
-				});
+				new StreamReader(process.getInputStream(), System.out));
 			startStreamReader(
 				new StreamReader(process.getErrorStream(), System.err));
 		} catch (IOException e) {
@@ -433,47 +605,65 @@ public class Creator extends WindowAdapter implements ActionListener, TableModel
 		}
 	}
 	
-	private void startStreamReader(StreamReader reader) {
+	private void initiateRemoteUIDefaults() {
+		RemoteUIDefaults def = null;
+		try {
+			Registry registry = LocateRegistry.getRegistry();
+			def = (RemoteUIDefaults)registry.lookup(RemoteUIDefaults.class.getName());
+		} catch (RemoteException e) {
+			e.printStackTrace();
+		} catch (NotBoundException e) {
+			e.printStackTrace();
+		}
+		synchronized (Creator.class) {
+			defaults = def;
+			Creator.class.notifyAll();
+		}
+		if (primaryTable != null) {
+			((UITableModel)primaryTable.getModel()).clearCache();
+			((UITableModel)secondaryTable.getModel()).clearCache();
+			((UITableModel)otherTable.getModel()).clearCache();
+		}
+	}
+	
+
+	private static void startStreamReader(StreamReader reader) {
 		Thread thread = new Thread(reader);
 		thread.setDaemon(true);
 		thread.start();
 	}
-	
+
 	private static class StreamReader implements Runnable {
-		
+
 		StreamReader(InputStream stream, PrintStream print) {
 			this.stream = stream;
 			this.print = print;
 		}
-		
+
 		private InputStream stream;
 		private PrintStream print;
-		
+
 		@Override
 		public void run() {
 			try {
 				BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
 				for (String line; (line=reader.readLine())!=null;)
 					processLine(line);
-				stream.close();
+				reader.close();
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
 		}
-		
+
 		void processLine(String line) {
 			print.println(line);
 		}
+		
 	}
 	
-	@Override
-	public void windowClosing(WindowEvent e) {
-		if (process != null)
-			process.destroy();
-	}
-	
-	
-	
+
+
+
 	static void getKeys(List<String> all, List<String> painters) {
 		for (Map.Entry<Object,Object> entry : UIManager.getLookAndFeelDefaults().entrySet()) {
 			if (!(entry.getKey() instanceof String))
@@ -491,5 +681,5 @@ public class Creator extends WindowAdapter implements ActionListener, TableModel
 		}
 	}
 
-	
+
 }

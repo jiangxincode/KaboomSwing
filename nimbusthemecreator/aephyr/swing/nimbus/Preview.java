@@ -3,21 +3,27 @@ package aephyr.swing.nimbus;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
+import java.awt.Insets;
+import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.InputEvent;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 
 import javax.swing.BorderFactory;
 import javax.swing.GroupLayout;
@@ -61,16 +67,17 @@ import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import javax.swing.border.AbstractBorder;
+import javax.swing.border.Border;
+import javax.swing.border.TitledBorder;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import javax.swing.table.DefaultTableColumnModel;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 
-//import static aephyr.swing.nimbus.NimbusThemeCreator.*;
 
-
-public class Preview implements ChangeListener {
+public class Preview extends WindowAdapter implements ChangeListener {
 
 	public static void main(final String[] args) throws Exception {
 		File file = new File("Theme.txt");
@@ -83,31 +90,39 @@ public class Preview implements ChangeListener {
 		Creator.setNimbusLookAndFeel();
 		SwingUtilities.invokeLater(new Runnable() {
 			public void run() {
-				int x = -1, y = -1, tabIndex = 0;
-				try {
-					if (args.length >= 3) {
-						x = Integer.parseInt(args[0]);
-						y = Integer.parseInt(args[1]);
-						tabIndex = Integer.parseInt(args[2]);
-					}
-				} catch (NumberFormatException e) {
-					x = -1;
-				}
-				JFrame frame = new JFrame(Preview.class.getSimpleName());
-				frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-				Preview preview = new Preview(tabIndex);
-				frame.add(preview.tabs, BorderLayout.CENTER);
-				frame.pack();
-				if (x >= 0 && y >= 0) {
-					frame.setLocation(x, y);
-				} else {
-					frame.setLocationRelativeTo(null);
-				}
-				if (preview.defaultButton != null)
-					frame.getRootPane().setDefaultButton(preview.defaultButton);
-				frame.setVisible(true);
+				Preview.initiate(args[0], args[1], args[2]);
 			}
 		});
+	}
+	
+	static void initiate(String X, String Y, String I) {
+		int x = -1, y = -1, tabIndex = 0;
+		try {
+			x = Integer.parseInt(X);
+			y = Integer.parseInt(Y);
+			tabIndex = Integer.parseInt(I);
+		} catch (NumberFormatException e) {
+			x = -1;
+		}
+		JFrame frame = new JFrame(Preview.class.getSimpleName());
+		frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+		Preview preview = new Preview(tabIndex);
+		frame.addWindowListener(preview);
+		frame.add(preview.tabs, BorderLayout.CENTER);
+		frame.pack();
+		if (x >= 0 && y >= 0) {
+			frame.setLocation(x, y);
+		} else {
+			frame.setLocationRelativeTo(null);
+		}
+		if (preview.defaultButton != null)
+			frame.getRootPane().setDefaultButton(preview.defaultButton);
+		frame.setVisible(true);
+		
+	}
+	
+	public void windowClosing(WindowEvent e) {
+		RemoteUIDefaultsImpl.previewClosed();
 	}
 
 	private JTabbedPane tabs;
@@ -338,10 +353,10 @@ public class Preview implements ChangeListener {
 		JTable table = new JTable(new UITableModel(keys), columns);
 		table.setPreferredScrollableViewportSize(new Dimension(400, table.getRowHeight()*15));
 		JSplitPane hor = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-				titled(new JScrollPane(tree), "JTree"),
-				titled(new JScrollPane(list), "JList"));
+				innerTitled(new JScrollPane(tree), "JTree"),
+				innerTitled(new JScrollPane(list), "JList"));
 		collections.setTopComponent(hor);
-		collections.setBottomComponent(titled(new JScrollPane(table), JTable.class.getSimpleName()));
+		collections.setBottomComponent(innerTitled(new JScrollPane(table), JTable.class.getSimpleName()));
 		collections.validate();
 		collections.setDividerLocation(0.55);
 		hor.setDividerLocation(0.35);
@@ -361,8 +376,8 @@ public class Preview implements ChangeListener {
 		area.select(0, 0);
 		final JEditorPane editor = new JEditorPane();
 		editor.setText(str);
-		texts.setTopComponent(titled(new JScrollPane(area), JTextArea.class.getSimpleName()));
-		texts.setBottomComponent(titled(new JScrollPane(editor), JEditorPane.class.getSimpleName()));
+		texts.setTopComponent(innerTitled(new JScrollPane(area), JTextArea.class.getSimpleName()));
+		texts.setBottomComponent(innerTitled(new JScrollPane(editor), JEditorPane.class.getSimpleName()));
 		texts.setDividerLocation(0.5);
 	}
 	
@@ -414,8 +429,7 @@ public class Preview implements ChangeListener {
 	@Override
 	public void stateChanged(ChangeEvent e) {
 		int idx = tabs.getSelectedIndex();
-		System.out.print("TabIndex:");
-		System.out.println(idx);
+		RemoteUIDefaultsImpl.setTabIndex(idx);
 		loadTab(idx);
 	}
 	
@@ -436,9 +450,52 @@ public class Preview implements ChangeListener {
 	
 	
 	
-
+	private static class RoundedBorder extends AbstractBorder {
+		RoundedBorder(int topInset) {
+			this.topInset = topInset;
+		}
+		int topInset;
+		
+		@Override
+		public Insets getBorderInsets(Component c, Insets insets) {
+			insets.left = insets.right = insets.bottom = 5;
+			insets.top = topInset;
+			return insets;
+		}
+		@Override
+		public Insets getBorderInsets(Component c) {
+			return getBorderInsets(c, new Insets(0, 0, 0, 0));
+		}
+		@Override
+		public void paintBorder(Component c, Graphics g, int x, int y,
+				int width, int height) {
+			Graphics2D g2 = (Graphics2D)g;
+			g2.setColor(UIManager.getColor("nimbusBorder"));
+			Object hintValue = g2.getRenderingHint(RenderingHints.KEY_ANTIALIASING);
+			if (hintValue != RenderingHints.VALUE_ANTIALIAS_ON)
+				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g2.drawRoundRect(x+1, y+1, width-2, height-2, 10, 10);
+			if (hintValue != RenderingHints.VALUE_ANTIALIAS_ON)
+				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, hintValue);
+		}
+	}
+	
+	private static Border innerBorder = new RoundedBorder(1);
+	
+	private static Border outerBorder = new RoundedBorder(5);
+	
+	private static Font titleFont = new Font(Font.SANS_SERIF, Font.PLAIN, 10);
+	
+	static <T extends JComponent> T innerTitled(T c, String title) {
+		return titled(innerBorder, TitledBorder.BELOW_TOP, c, title);
+	}
+	
 	static <T extends JComponent> T titled(T c, String title) {
-		c.setBorder(BorderFactory.createTitledBorder(title));
+		return titled(outerBorder, TitledBorder.ABOVE_TOP, c, title);
+	}
+	
+	private static <T extends JComponent> T titled(Border b, int p, T c, String t) {
+		c.setBorder(new TitledBorder(b, t, TitledBorder.LEADING, p, titleFont));
 		return c;
 	}
 

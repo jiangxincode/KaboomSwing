@@ -28,9 +28,6 @@ class UIDefaultsRenderer extends JComponent implements TableCellRenderer {
 	int row = -1;
 	boolean selected = false;
 	
-	boolean needsFocus;
-	
-	
 	@Override
 	public Component getTableCellRendererComponent(JTable tbl,
 			Object val, boolean isSelected, boolean hasFocus, int row,
@@ -38,11 +35,45 @@ class UIDefaultsRenderer extends JComponent implements TableCellRenderer {
 		UITableModel mdl = (UITableModel)tbl.getModel();
 		value = val;
 		type = mdl.getType(tbl.convertRowIndexToModel(row));
+		setToolTipText(toolTipText());
 		this.row = row;
 		selected = isSelected;
-		needsFocus = type == Type.Painter &&
-			mdl.getKey(row).indexOf("Focused") >= 0;
 		return this;
+	}
+	
+	private String toolTipText() {
+		switch (type) {
+		case Color: {
+			Color c = (Color)value;
+			return c.getRed()+", "+c.getGreen()+", "+c.getBlue();
+			}
+		case Insets: {
+			Insets i = (Insets)value;
+			return i.top+", "+i.left+", "+i.bottom+", "+i.right;
+			}
+		case Font: {
+			Font f = (Font)value;
+			String style;
+			switch (f.getStyle()) {
+			default: style = "PLAIN"; break;
+			case Font.BOLD: style = "BOLD"; break;
+			case Font.ITALIC: style = "ITALIC"; break;
+			case Font.BOLD | Font.ITALIC: style = "BOLDITALIC"; break;
+			}
+			return f.getFamily()+", "+style+", "+f.getSize();
+			}
+		case String: {
+			return (String)value;
+			}
+		case Dimension: {
+			Dimension d = (Dimension)value;
+			return d.width+" \u00D7 "+d.height;
+			}
+		case Object: {
+			return value.getClass().getSimpleName();
+			}
+		}
+		return null;
 	}
 	
 	@Override
@@ -63,9 +94,13 @@ class UIDefaultsRenderer extends JComponent implements TableCellRenderer {
 			g2.fillRoundRect(2, 2, getWidth()-4, getHeight()-4, 10, 10);
 		} break;
 		case Painter: {
-			Painter<JComponent> painter = (Painter<JComponent>)value;
-			g.translate((getWidth()-getHeight())/2, 0);
-			painter.paint((Graphics2D)g, this, getHeight(), getHeight());
+			if (value instanceof Icon) {
+				paintIcon(g, (Icon)value);
+			} else {
+				Painter<JComponent> painter = (Painter<JComponent>)value;
+				g.translate((getWidth()-getHeight())/2, 0);
+				painter.paint((Graphics2D)g, this, getHeight(), getHeight());
+			}
 		} break;
 		case Insets: {
 			Insets in = (Insets)value;
@@ -85,10 +120,7 @@ class UIDefaultsRenderer extends JComponent implements TableCellRenderer {
 			drawString(g, value.toString(), getFont());
 			break;
 		case Icon: {
-			Icon icn = (Icon)value;
-			int x = (getWidth()-icn.getIconWidth())/2;
-			int y = (getHeight()-icn.getIconHeight())/2;
-			icn.paintIcon(this, g, x, y);
+			paintIcon(g, (Icon)value);
 		} break;
 		case Dimension: {
 			Dimension d = (Dimension)value;
@@ -96,13 +128,19 @@ class UIDefaultsRenderer extends JComponent implements TableCellRenderer {
 				g.setColor(Color.GRAY);
 				g.drawRect((getWidth()-d.width)/2, (getHeight()-d.height)/2, d.width, d.height);
 			} else {
-				drawString(g, d.width+" x "+d.height, getFont());
+				drawString(g, d.width+" \u00D7 "+d.height, getFont());
 			}
 		} break;
 		case Object: {
-			System.out.println(value.getClass());
+			drawString(g, getToolTipText(), getFont());
 		} break;
 		}
+	}
+	
+	private void paintIcon(Graphics g, Icon icn) {
+		int x = (getWidth()-icn.getIconWidth())/2;
+		int y = (getHeight()-icn.getIconHeight())/2;
+		icn.paintIcon(this, g, x, y);
 	}
 	
 	private void drawString(Graphics g, String str, Font font) {
