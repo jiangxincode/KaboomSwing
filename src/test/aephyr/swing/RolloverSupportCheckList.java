@@ -60,8 +60,6 @@ public class RolloverSupportCheckList implements Runnable, ItemListener, ActionL
 		@Override
 		public Component getListCellRendererComponent(JList list, Object value,
 				int index, boolean isSelected, boolean cellHasFocus) {
-			if (getParent() == list)
-				System.out.println(index + " " + checkSelection.isSelectedIndex(index));
 			setText(value == null ? "" : value.toString());
 			ignoreSelectionChange = true;
 			setSelected(checkSelection.isSelectedIndex(index));
@@ -89,8 +87,6 @@ public class RolloverSupportCheckList implements Runnable, ItemListener, ActionL
 		} else {
 			checkSelection.removeSelectionInterval(index, index);
 		}
-		list.getSelectionModel().setAnchorSelectionIndex(index);
-		list.getSelectionModel().setLeadSelectionIndex(index);
 		list.requestFocusInWindow();
 	}
 	

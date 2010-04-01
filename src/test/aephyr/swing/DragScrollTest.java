@@ -16,11 +16,9 @@ package test.aephyr.swing;
 
 import java.awt.BorderLayout;
 import java.awt.EventQueue;
+import java.awt.event.MouseEvent;
 
-import javax.swing.JFrame;
-import javax.swing.JList;
-import javax.swing.JScrollPane;
-import javax.swing.UIManager;
+import javax.swing.*;
 
 import aephyr.swing.*;
 
@@ -29,9 +27,13 @@ public class DragScrollTest {
 	public static void main(String[] args) {
 
 		JList list = new JList(UIManager.getLookAndFeelDefaults().keySet().toArray());
-//		list.setLayoutOrientation(JList.VERTICAL_WRAP);
-//		list.setVisibleRowCount(list.getModel().getSize()/5+1);
-		new DragScrollSupport().register(list);
+		list.setLayoutOrientation(JList.VERTICAL_WRAP);
+		list.setVisibleRowCount(list.getModel().getSize()/5+1);
+		list.putClientProperty("List.isFileList", true);
+		
+		DragScrollSupport support = new DragScrollSupport();
+//		support.setDragButton(MouseEvent.BUTTON2);
+		support.register(list);
 		
 		JFrame frame = new JFrame();
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);

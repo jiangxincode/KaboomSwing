@@ -68,10 +68,13 @@ public class TreeCellSpanner extends Container implements TreeCellRenderer, Comp
 	
 	@Override
 	public void doLayout() {
+		int x = getX();
+		if (x < 0)
+			return;
 		if (path != null) {
 			Integer offset = offsets.get(path);
-			if (offset == null || offset.intValue() != getX()) {
-				offsets.put(path, getX());
+			if (offset == null || offset.intValue() != x) {
+				offsets.put(path, x);
 				fireTreePathChanged(path);
 			}
 		}
@@ -116,18 +119,23 @@ public class TreeCellSpanner extends Container implements TreeCellRenderer, Comp
 	}
 
 	
-	
 	protected void fireTreePathChanged(TreePath path) {
 		if (path.getPathCount() > 1) {
 			// this cannot be used for the root node or else
 			// the entire tree will keep being revalidated ad infinitum
-			tree.getModel().valueForPathChanged(path, path.getLastPathComponent().toString());
+			TreeModel model = tree.getModel();
+			Object node = path.getLastPathComponent();
+			if (model instanceof DefaultTreeModel && node instanceof TreeNode) {
+				((DefaultTreeModel)model).nodeChanged((TreeNode)node);
+			} else {
+				model.valueForPathChanged(path, node.toString());
+			}
 		} else {
 			// root!
 			
 		}
-		
 	}
+
 	
 	private int lastWidth;
 

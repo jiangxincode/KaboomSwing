@@ -44,6 +44,8 @@ public class StressTest implements Runnable, ActionListener, ItemListener, Chang
 			columns.addColumn(createTableColumn(i));
 		
 		table = new JTable(createTableModel(), columns);
+		
+		
 		table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
 		table.setAutoCreateRowSorter(true);
 		

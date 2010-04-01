@@ -88,7 +88,6 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 		TableColumnModel columns = new DefaultTableColumnModel();
 		for (int i=0; i<COLUMNS; i++)
 			columns.addColumn(createTableColumn(i));
-		
 		table = new JTable(createTableModel(), columns);
 		table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
 		table.setAutoCreateRowSorter(true);
@@ -382,7 +381,7 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 			} else if (n < 92) {
 				actor.changeModel();
 			} else {
-				actor.setVisible(n > 95);
+				actor.setVisible(n > 93);
 			}
 		} else {
 			String cmd = e.getActionCommand();
@@ -723,8 +722,17 @@ public class RolloverSupportTest extends MouseAdapter implements Runnable, Actio
 		}
 		void expand() {
 			TreePath path = getPath(true);
-			if (path != null)
-				tree.expandPath(path);
+			if (path != null) {
+				int row = tree.getRowForPath(path);
+				while (--row >= 0) {
+					path = tree.getPathForRow(row);
+					TreeNode node = (TreeNode)path.getLastPathComponent();
+					if (!node.isLeaf() && tree.isCollapsed(path)) {
+						tree.expandPath(path);
+						break;
+					}
+				}
+			}
 		}
 
 		public boolean canImport(TransferSupport support) {

@@ -26,7 +26,7 @@ import javax.swing.tree.*;
 import javax.swing.table.*;
 
 
-public class RolloverSupport extends MouseAdapter implements ComponentListener {
+public class RolloverSupport extends MouseAdapter implements ComponentListener, PropertyChangeListener {
 
 	private static Component rolloverComponent;
 	
@@ -162,7 +162,7 @@ public class RolloverSupport extends MouseAdapter implements ComponentListener {
 	 * @see #hide(Component, boolean)
 	 */
 	public void deferHideRolloverComponent() {
-		if (rolloverComponent != null && !doHide) {
+		if (rolloverSupport == this && !doHide) {
 			doHide = true;
 			EventQueue.invokeLater(new Runnable() {
 				public void run() {
@@ -234,6 +234,13 @@ public class RolloverSupport extends MouseAdapter implements ComponentListener {
 		deferValidate();
 	}
 	
+	@Override
+	public void propertyChange(PropertyChangeEvent evt) {
+		if (evt.getPropertyName() == "enabled") {
+			setEnabled((Boolean)evt.getNewValue());
+		}
+	}
+	
 	/**
 	 * Must be used instead of validate for instances where the cause
 	 * of validation comes from an event that the UI may need to process
@@ -290,7 +297,7 @@ public class RolloverSupport extends MouseAdapter implements ComponentListener {
 	}
 	
 	public static class List extends Indexed
-			implements ListSelectionListener, ListDataListener, PropertyChangeListener {
+			implements ListSelectionListener, ListDataListener {
 		
 		public List(JList list, ListCellRenderer rolloverRenderer) {
 			if (list == null || rolloverRenderer == null)
@@ -414,8 +421,8 @@ public class RolloverSupport extends MouseAdapter implements ComponentListener {
 				model = (ListModel)evt.getNewValue();
 				model.addListDataListener(this);
 				deferValidate();
-			} else if (evt.getPropertyName() == "enabled") {
-				setEnabled((Boolean)evt.getNewValue());
+			} else {
+				super.propertyChange(evt);
 			}
 		}
 		
@@ -442,7 +449,7 @@ public class RolloverSupport extends MouseAdapter implements ComponentListener {
 	}
 	
 	public static class Tree extends Indexed
-			implements TreeSelectionListener, TreeExpansionListener, TreeModelListener, PropertyChangeListener {
+			implements TreeSelectionListener, TreeExpansionListener, TreeModelListener {
 		
 		public Tree(JTree tree, TreeCellRenderer rolloverRenderer) {
 			if (tree == null || rolloverRenderer == null)
@@ -602,8 +609,8 @@ public class RolloverSupport extends MouseAdapter implements ComponentListener {
 				model = (TreeModel)evt.getNewValue();
 				model.addTreeModelListener(this);
 				deferValidate();
-			} else if (evt.getPropertyName() == "enabled") {
-				setEnabled((Boolean)evt.getNewValue());
+			} else {
+				super.propertyChange(evt);
 			}
 		}
 		
@@ -632,7 +639,7 @@ public class RolloverSupport extends MouseAdapter implements ComponentListener {
 	
 	public static class Table extends RolloverSupport
 			implements ListSelectionListener, TableColumnModelListener,
-			PropertyChangeListener, TableModelListener, RowSorterListener {
+			TableModelListener, RowSorterListener {
 		
 		public Table(JTable table, TableCellRenderer rolloverRenderer) {
 			if (table == null || rolloverRenderer == null)
@@ -810,11 +817,11 @@ public class RolloverSupport extends MouseAdapter implements ComponentListener {
 				RowSorter<?> sorter = (RowSorter<?>)evt.getOldValue();
 				if (sorter != null)
 					sorter.removeRowSorterListener(this);
-				sorter = (RowSorter<?>)evt.getOldValue();
+				sorter = (RowSorter<?>)evt.getNewValue();
 				if (sorter != null)
 					sorter.addRowSorterListener(this);
-			} else if (property == "enabled") {
-				setEnabled((Boolean)evt.getNewValue());
+			} else {
+				super.propertyChange(evt);
 			}
 		}
 

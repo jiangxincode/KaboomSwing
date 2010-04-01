@@ -84,8 +84,8 @@ public class ScrollPadSupport extends MouseAdapter implements ActionListener, Po
 
 	/**
 	 * Sets the behavior associated with clicking on the arrow
-	 * buttons of the scroll pad. If true, a click will initial
-	 * autoscrolling in the specified directions and subsequent
+	 * buttons of the scroll pad. If true, a click will initiate
+	 * autoscrolling in the specified direction and subsequent
 	 * clicks will speed up the autoscrolling. If false, the 
 	 * behavior is similar to the scroll buttons of JScrollBar.
 	 * 
@@ -146,7 +146,9 @@ public class ScrollPadSupport extends MouseAdapter implements ActionListener, Po
 	public void showScrollPad(JComponent parent, int x, int y) {
 		Rectangle r = visible;
 		parent.computeVisibleRect(r);
-		if (r.width < ScrollPad.DIAMETER || r.height < ScrollPad.DIAMETER)
+		ScrollPad sp = getScrollPad();
+		Dimension sz = sp.getPreferredSize();
+		if (r.width < sz.width || r.height < sz.height)
 			return;
 		int arrows = 0;
 		if (r.y > 0)
@@ -161,9 +163,8 @@ public class ScrollPadSupport extends MouseAdapter implements ActionListener, Po
 			return;
 		if (scrollPopup == null) {
 			scrollPopup = new JPopupMenu();
-			if (scrollPad == null)
-				scrollPad = new ScrollPad();
 			scrollPad.addScrollPadListener(this);
+//			new DragScroller(scrollPad);
 			if (scrollTimer == null)
 				scrollTimer = new Timer(100, this);
 			scrollTimer.setInitialDelay(300);
@@ -177,49 +178,26 @@ public class ScrollPadSupport extends MouseAdapter implements ActionListener, Po
 		scrollPad.setVisibleArrows(arrows);
 		scrollPad.setScrollArrow(0);
 
-//		x -= ScrollPad.DIAMETER/2;
-//		y -= ScrollPad.DIAMETER/2;
-//		if (x < r.x) {
-//			x = r.x;
-//		} else if (x+ScrollPad.DIAMETER > r.x+r.width) {
-//			x = r.x + r.width - ScrollPad.DIAMETER;
-//		}
-//		if (y < r.y) {
-//			y = r.y;
-//		} else if (y+ScrollPad.DIAMETER > r.y+r.height) {
-//			y = r.y + r.height - ScrollPad.DIAMETER;
-//		}
-//		Point p = new Point(x, y);
-//		SwingUtilities.convertPointToScreen(p, parent);
-//		currentX = originX = p.x + ScrollPad.DIAMETER/2;
-//		currentY = originY = p.y + ScrollPad.DIAMETER/2;
+		x -= sz.width/2;
+		y -= sz.height/2;
+		if (x < r.x) {
+			x = r.x;
+		} else if (x+sz.width > r.x+r.width) {
+			x = r.x + r.width - sz.width;
+		}
+		if (y < r.y) {
+			y = r.y;
+		} else if (y+sz.height > r.y+r.height) {
+			y = r.y + r.height - sz.height;
+		}
 		Point p = new Point(x, y);
-		scrollPadLocation(parent, p);
-		scrollPopup.show(parent, p.x, p.y);
+		SwingUtilities.convertPointToScreen(p, parent);
+		currentX = originX = p.x + sz.width/2;
+		currentY = originY = p.y + sz.height/2;
+		scrollPopup.show(parent, x, y);
 		parent.addMouseMotionListener(this);
 	}
 	
-	// the commented code above was refactored to this method so
-	// DragScroller will be be able to share its functionality
-	private void scrollPadLocation(Component parent, Point p) {
-		Rectangle r = visible;
-		p.x -= ScrollPad.DIAMETER/2;
-		p.y -= ScrollPad.DIAMETER/2;
-		if (p.x < r.x) {
-			p.x = r.x;
-		} else if (p.x+ScrollPad.DIAMETER > r.x+r.width) {
-			p.x = r.x + r.width - ScrollPad.DIAMETER;
-		}
-		if (p.y < r.y) {
-			p.y = r.y;
-		} else if (p.y+ScrollPad.DIAMETER > r.y+r.height) {
-			p.y = r.y + r.height - ScrollPad.DIAMETER;
-		}
-		Point pAbs = new Point(p);
-		SwingUtilities.convertPointToScreen(pAbs, parent);
-		currentX = originX = pAbs.x + ScrollPad.DIAMETER/2;
-		currentY = originY = pAbs.y + ScrollPad.DIAMETER/2;
-	}
 	
 	@Override
 	public void mousePressed(MouseEvent e) {
@@ -253,7 +231,7 @@ public class ScrollPadSupport extends MouseAdapter implements ActionListener, Po
 			if (theta >= -Math.PI*5/8) {
 				if (theta <= -Math.PI*3/8) {
 					scrollPad.setScrollArrow(TOP);
-				} else if (theta > -Math.PI/8) {
+				} else if (theta >= -Math.PI/8) {
 					scrollPad.setScrollArrow(RIGHT);
 				} else {
 					scrollPad.setScrollArrow(TOP | RIGHT);
@@ -302,7 +280,7 @@ public class ScrollPadSupport extends MouseAdapter implements ActionListener, Po
 				scroll(scrollButton, scrollMagnitude);
 		} else {
 			int a = scrollPad.getScrollArrow();
-			switch (scrollPad.getScrollArrow()) {
+			switch (a) {
 			case 0: return;
 			case TOP: case BOTTOM: scroll(0, exp(currentY-originY), a, true); break;
 			case LEFT: case RIGHT: scroll(exp(currentX-originX), 0, a, true); break;
@@ -400,6 +378,13 @@ public class ScrollPadSupport extends MouseAdapter implements ActionListener, Po
 			scrollButton = -1;
 		}
 	}
+	
+	@Override
+	public void buttonClicked(ScrollPad.Event e) {
+		if (e.getButton() == ScrollPad.CENTER) {
+			scrollPopup.setVisible(false);
+		}
+	}
 
 	// f(x) = ax*x + b/x, 	f(1) = 1, 	f(100) = 100
 	// 1 = a + b 	-> b = 1-a
@@ -415,26 +400,99 @@ public class ScrollPadSupport extends MouseAdapter implements ActionListener, Po
 				(int)(a*n*n + b/n);
 	}
 	
+	
+	//TODO incomplete/broken/yadayada...
 	private class DragScroller extends MouseAdapter {
 		
-		Point start = new Point();
+		DragScroller(ScrollPad s) {
+			s.addMouseListener(this);
+			s.addMouseMotionListener(this);
+		}
+		
+		Rectangle absRect = new Rectangle();
+		
+		int startX, startY;
+		
+		Point min = new Point();
+		
+		Point max = new Point();
+		
+		int dragButton = MouseEvent.BUTTON1;
+		
+		boolean isDragging = false;
 
+		int originXOffset, originYOffset;
+		
+		
+		
 		@Override
 		public void mousePressed(MouseEvent e) {
-
+			System.out.println(e);
+			if (e.getButton() == dragButton) {
+				startX = e.getXOnScreen();
+				startY = e.getYOnScreen();
+//				originXOffset = e.getXOnScreen() - originX + ScrollPad.DIAMETER/2;
+//				originYOffset = e.getYOnScreen() - originY + ScrollPad.DIAMETER/2;
+				JComponent c = (JComponent)scrollPopup.getInvoker();
+				c.computeVisibleRect(absRect);
+				min.setLocation(0, 0);
+				max.setLocation(c.getWidth() - absRect.width, c.getHeight() - absRect.height);
+				SwingUtilities.convertPointToScreen(min, c);
+				SwingUtilities.convertPointToScreen(max, c);
+				Point p = absRect.getLocation();
+				SwingUtilities.convertPointToScreen(p, c);
+				absRect.setLocation(p);
+				isDragging = false;
+			}
 		}
 
 		@Override
 		public void mouseDragged(MouseEvent e) {
-
+			if (startX >= 0) {
+				if (!isDragging) {
+					isDragging = true;
+					
+				}
+				move(e);
+				e.consume();
+			}
 		}
 
 		@Override
 		public void mouseReleased(MouseEvent e) {
-
+			if (isDragging) {
+				move(e);
+				isDragging = false;
+				
+				e.consume();
+			}
 		}
 		
-		
+		private void move(MouseEvent e) {
+			Rectangle v = absRect;
+			int newX = v.x + startX - e.getXOnScreen();
+			int newY = v.y + startY - e.getYOnScreen();
+			if (newX < min.x)
+				newX = min.x;
+			else if (newX > max.x)
+				newX = max.x;
+			if (newY < min.y)
+				newY = min.y;
+			else if (newY > max.y)
+				newY = max.y;
+			v.x = newX;
+			v.y = newY;
+			Point p = v.getLocation();
+			JComponent c = (JComponent)scrollPopup.getInvoker();
+			SwingUtilities.convertPointFromScreen(p, c);
+			visible.setBounds(p.x, -p.y, v.width, v.height);
+			System.out.println("\tmove: "+visible + " " + c.getY());
+			c.scrollRectToVisible(visible);
+
+			originX = e.getXOnScreen()-originXOffset;
+			originY = e.getYOnScreen()-originYOffset;
+			scrollPopup.setLocation(originX, originY);
+		}
 	}
 	
 	
