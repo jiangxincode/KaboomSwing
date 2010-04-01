@@ -162,9 +162,11 @@ public class TreeModelTransformer<I> implements TreeModel {
 			}
 			break;
 		case DESCENDING:
-			if (oldOrder != SortOrder.ASCENDING)
+			if (oldOrder == SortOrder.ASCENDING) {
+				flip();
+			} else {
 				paths = sort();
-			flip();
+			}
 			break;
 		case UNSORTED:
 			unsort();
@@ -282,6 +284,8 @@ public class TreeModelTransformer<I> implements TreeModel {
 		if (converter == null) {
 			converters.put(node, new Converter(vtm, false));
 		}
+		if (sortOrder == SortOrder.DESCENDING)
+			flip(vtm);
 	}
 	
 	public void setFilter(Filter filter) {
@@ -502,8 +506,6 @@ public class TreeModelTransformer<I> implements TreeModel {
 				}
 				if (sortOrder != SortOrder.UNSORTED && converter.getChildCount() > 1) {
 					sort(path.getLastPathComponent());
-					if (sortOrder == SortOrder.DESCENDING)
-						flip(converter.viewToModel);
 					fireTreeStructureChangedAndExpand(path, null);
 					expandPaths(expand);
 					return;
