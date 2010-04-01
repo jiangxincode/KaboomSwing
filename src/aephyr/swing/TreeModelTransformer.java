@@ -528,78 +528,6 @@ public class TreeModelTransformer<I> implements TreeModel {
 			fireTreeNodesChanged(path, childIndices, childNodes);
 			maybeFireStructureChange(path, expand);
 		}
-
-//		protected void treeNodesChanged(TreePath path, int[] childIndices, Object[] childNodes) {
-//			Converter converter = getConverter(path.getLastPathComponent());
-//			ArrayList<TreePath> expand = null;
-//			if (converter != null) {
-//				int childIndex = 0;
-//				for (int i=0; i<childIndices.length; i++) {
-//					int idx = converter.convertRowIndexToView(childIndices[i]);
-//					if (idx >= 0) {
-//						// see if the filter dislikes the nodes new state
-//						if (converter.isFiltered() &&
-//								!isFiltered(childNodes[i]) &&
-//								!acceptable(path, childNodes, i)) {
-//							// maybe it likes a child nodes state
-//							if (expand == null)
-//								expand = new ArrayList<TreePath>();
-//							if (!applyFilter(filter, path, childNodes[i], expand))
-//								remove(path, childNodes[i]);
-//							continue;
-//						}
-//						childNodes[childIndex] = childNodes[i];
-//						childIndices[childIndex++] = idx;
-//					} else if (acceptable(path, childNodes, i)) {
-//						int viewIndex = insert(path.getLastPathComponent(),
-//								childNodes[i], childIndices[i], converter);
-//						fireTreeNodesInserted(path, indices(viewIndex), nodes(childNodes[i]));
-//					} else {
-//						if (expand == null)
-//							expand = new ArrayList<TreePath>();
-//						if (applyFilter(filter, path, childNodes[i], expand)) {
-//							int viewIndex = insert(path.getLastPathComponent(),
-//									childNodes[i], childIndices[i], converter);
-//							fireTreeNodesInserted(path, indices(viewIndex), nodes(childNodes[i]));
-//						}
-//					}
-//				}
-//				if (childIndex == 0) {
-//					maybeFireStructureChange(path, expand);
-//					return;
-//				}
-//				if (childIndex != childIndices.length) {
-//					childIndices = Arrays.copyOf(childIndices, childIndex);
-//					childNodes = Arrays.copyOf(childNodes, childIndex);
-//				}
-//				if (sortOrder != SortOrder.UNSORTED && converter.getChildCount() > 1) {
-//					sort(path.getLastPathComponent());
-//					if (sortOrder == SortOrder.DESCENDING)
-//						flip(converter.viewToModel);
-//					fireTreeStructureChangedAndExpand(path, null);
-//					expandPaths(expand);
-//					return;
-//				}
-//			} else if (filter != null && isFilteredOut(path)) {
-//				// see if the filter likes the nodes new states
-//				expand = new ArrayList<TreePath>();
-//				int[] vtm = null;
-//				int idx = 0;
-//				for (int i=0; i<childIndices.length; i++) {
-//					if (acceptable(path, childNodes, i, expand)) {
-//						if (vtm == null)
-//							vtm = new int[childIndices.length-i];
-//						vtm[idx++] = childIndices[i];
-//					}
-//				}
-//				// filter in path if appropriate
-//				if (vtm != null)
-//					filterIn(vtm, idx, path, expand);
-//				return;
-//			}
-//			fireTreeNodesChanged(path, childIndices, childNodes);
-//			maybeFireStructureChange(path, expand);
-//		}
 		
 		/**
 		 * Helper method for treeNodesChanged...
@@ -624,7 +552,6 @@ public class TreeModelTransformer<I> implements TreeModel {
 		protected void treeNodesInserted(TreePath path, int[] childIndices, Object[] childNodes) {
 			Object parent = path.getLastPathComponent();
 			Converter converter = getConverter(parent);
-			System.out.println("treeNodesInserted\tpath: "+path+"\tconverter: "+converter);
 			ArrayList<TreePath> expand = null;
 			if (converter != null) {
 				int childIndex = 0;
@@ -658,7 +585,6 @@ public class TreeModelTransformer<I> implements TreeModel {
 					sort(childIndices, childNodes);
 				}
 			} else if (filter != null && isFilteredOut(path)) {
-				System.out.println("\tfiltered out");
 				// apply filter to inserted nodes
 				int[] vtm = null;
 				int idx = 0;
@@ -671,7 +597,6 @@ public class TreeModelTransformer<I> implements TreeModel {
 						vtm[idx++] = childIndices[i];
 					}
 				}
-				System.out.println("\tvtm: " + vtm);
 				// filter in path if appropriate
 				if (vtm != null)
 					filterIn(vtm, idx, path, expand);
