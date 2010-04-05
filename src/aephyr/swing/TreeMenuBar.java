@@ -139,7 +139,7 @@ public class TreeMenuBar extends CurlMenuBar {
 	public void setPath(TreePath path) {
 		this.path = path;
 		int menusSize = menus.size();
-		if (!isLeaf(path.getLastPathComponent()))
+		if (path != null && !isLeaf(path.getLastPathComponent()))
 			path = path.pathByAddingChild(" ");
 		int pathCount = path == null ? 1 : path.getPathCount();
 		int len = Math.min(menusSize, pathCount);
@@ -181,8 +181,6 @@ public class TreeMenuBar extends CurlMenuBar {
 	private void prepareTree(Object root) {
 		if (tree == null) {
 			tree = createTree(root);
-			tree.addMouseListener(handler);
-			tree.addMouseMotionListener(handler);
 		} else {
 			if (model == null) {
 				DefaultTreeModel mdl = (DefaultTreeModel)tree.getModel();
@@ -207,6 +205,8 @@ public class TreeMenuBar extends CurlMenuBar {
 		JTree tree = new JTree(mdl);
 		tree.setRootVisible(false);
 		tree.setShowsRootHandles(true);
+		tree.addMouseListener(handler);
+		tree.addMouseMotionListener(handler);
 		return tree;
 	}
 

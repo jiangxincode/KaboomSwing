@@ -141,11 +141,11 @@ public class CachingTable extends JTable implements Cachable {
 	}
 
 	/**
-	 * CachingList uses its own internal model to implement the caching/loading behavior.
-	 * 
 	 * @throws UnsupportedOperationException
+	 * 		if <code>model</code> is not an instance of <code>CachingTable.Model</code>
 	 * @see {@link #setLoadingModel(Model)}
 	 */
+	@Override
 	public void setModel(TableModel model) {
 		if (!(model instanceof Model))
 			throw new IllegalArgumentException();
@@ -364,11 +364,11 @@ public class CachingTable extends JTable implements Cachable {
 		void updateCache(TableModelEvent e) {
 			int firstRow = e.getFirstRow();
 			int lastRow = e.getLastRow();
-			if (isUnsorted()) {
-				updateCache(e.getType(), firstRow, lastRow);
-			} else if (firstRow == lastRow) {
+			if (firstRow == lastRow) {
 				firstRow = convertRowIndexToView(firstRow);
 				updateCache(e.getType(), firstRow, firstRow);
+			} else  if (isUnsorted()) {
+				updateCache(e.getType(), firstRow, lastRow);
 			} else {
 				int[] rows = new int[lastRow - firstRow + 1];
 				for (int i=rows.length; --i>=0;)
@@ -392,5 +392,38 @@ public class CachingTable extends JTable implements Cachable {
 		
 	}
 	
+	// unrelated to caching
+	
+	private boolean paintsFocus = true;
+	
+	public void setPaintsFocus(boolean paintsFocus) {
+		if (paintsFocus != this.paintsFocus) {
+			this.paintsFocus = paintsFocus;
+			repaint();
+		}
+	}
+	
+	public boolean getPaintsFocus() {
+		return paintsFocus;
+	}
+	
+	/**
+	 * Overridden to supply hasFocus as false to the renderers
+	 * but still allow the table to be focusable.
+	 */
+	@Override
+	public Component prepareRenderer(TableCellRenderer renderer,
+			int row, int column) {
+		if (paintsFocus)
+			return super.prepareRenderer(renderer, row, column);
+		Object value = getValueAt(row, column);
+		boolean isSelected = false;
+		// Only indicate the selection and focused cell if not printing
+		if (!isPaintingForPrint()) {
+			isSelected = isCellSelected(row, column);
+		}
+		return renderer.getTableCellRendererComponent(
+				this, value, isSelected, false, row, column);
+	}
 	
 }

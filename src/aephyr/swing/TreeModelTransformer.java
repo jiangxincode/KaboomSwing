@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Enumeration;
+import java.util.Map;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.regex.Matcher;
@@ -42,10 +43,12 @@ public class TreeModelTransformer<I> implements TreeModel {
 	
 	private Filter filter;
 	
+	private TreePath filterStartPath;
+	
 	private SortOrder sortOrder = SortOrder.UNSORTED;
 	
-	private HashMap<Object,Converter> converters;
-
+	private Map<Object,Converter> converters;
+	
 	protected EventListenerList listenerList = new EventListenerList();
 
 	protected Handler createHandler() {
@@ -66,6 +69,10 @@ public class TreeModelTransformer<I> implements TreeModel {
 		removeListeners();
 	}
 	
+	public TreeModel getModel() {
+		return model;
+	}
+
 	private Converter getConverter(Object node) {
 		return converters == null ? null : converters.get(node);
 	}
@@ -229,7 +236,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 	 */
 	private ArrayList<TreePath> sort() {
 		if (converters == null)
-			converters = new HashMap<Object,Converter>();
+			converters = createConvertersMap(); //new IdentityHashMap<Object,Converter>();
 		return sortHierarchy(new TreePath(model.getRoot()));
 	}
 
@@ -239,92 +246,126 @@ public class TreeModelTransformer<I> implements TreeModel {
 	 * @return list of paths that were sorted
 	 */
 	private ArrayList<TreePath> sortHierarchy(TreePath path) {
+		ValueIndexPair<I>[] pairs = new ValueIndexPair[30];
 		ArrayList<TreePath> list = new ArrayList<TreePath>();
-		sort(path.getLastPathComponent());
+		pairs = sort(path.getLastPathComponent(), pairs);
 		list.add(path);
 		Enumeration<TreePath> paths = tree.getExpandedDescendants(path);
-		while (paths.hasMoreElements()) {
-			path = paths.nextElement();
-			sort(path.getLastPathComponent());
-			list.add(path);
-		}
+		if (paths != null)
+			while (paths.hasMoreElements()) {
+				path = paths.nextElement();
+				pairs = sort(path.getLastPathComponent(), pairs);
+				list.add(path);
+			}
 		return list;
 	}
-
-	/**
-	 * Sort specified node.
-	 * @param node
-	 */
-	private void sort(Object node) {
+	
+	private ValueIndexPair<I>[] sort(Object node, ValueIndexPair<I>[] pairs) {
 		Converter converter = getConverter(node);
 		TreeModel mdl = model;
-		ValueIndexPair<I>[] pairs;
 		int[] vtm;
 		if (converter != null) {
 			vtm = converter.viewToModel;
-			pairs = new ValueIndexPair[vtm.length];
-			for (int i=pairs.length; --i>=0;) {
+			if (pairs.length < vtm.length)
+				pairs = new ValueIndexPair[vtm.length];
+			for (int i=vtm.length; --i>=0;) {
 				int idx = vtm[i];
 				pairs[i] = new ValueIndexPair(idx, mdl.getChild(node, idx));
 			}
 		} else {
 			int count = mdl.getChildCount(node);
-			if (count > 0) {
+			if (count <= 0)
+				return pairs;
+			if (pairs.length < count)
 				pairs = new ValueIndexPair[count];
-				for (int i=count; --i>=0;)
-					pairs[i] = new ValueIndexPair(i, mdl.getChild(node, i));
-				vtm = new int[count];
-			} else {
-				return;
-			}
+			for (int i=count; --i>=0;)
+				pairs[i] = new ValueIndexPair(i, mdl.getChild(node, i));
+			vtm = new int[count];
 		}
-		Arrays.sort(pairs, handler);
-		for (int i=pairs.length; --i>=0;)
+		Arrays.sort(pairs, 0, vtm.length, handler);
+		for (int i=vtm.length; --i>=0;)
 			vtm[i] = pairs[i].index;
 		if (converter == null) {
 			converters.put(node, new Converter(vtm, false));
 		}
 		if (sortOrder == SortOrder.DESCENDING)
 			flip(vtm);
+		return pairs;
 	}
 	
 	public void setFilter(Filter filter) {
+		setFilter(filter, null);
+	}
+	
+	public void setFilter(Filter filter, TreePath startingPath) {
+		if (filter == null && startingPath != null)
+			throw new IllegalArgumentException();
+		if (startingPath != null && startingPath.getPathCount() == 1)
+			startingPath = null;
+		Filter oldFilter = this.filter;
+		TreePath oldStartPath = filterStartPath;
 		this.filter = filter;
+		filterStartPath = startingPath;
+		applyFilter(oldFilter, oldStartPath);
+	}
+	
+	
+	private void applyFilter(Filter oldFilter, TreePath oldStartPath) {
+		TreePath startingPath = filterStartPath;
 		ArrayList<TreePath> expand = null;
 		if (filter == null) {
 			converters = null;
 		} else {
-			converters = new HashMap<Object,Converter>();
+			if (converters == null || startingPath == null) {
+				converters = createConvertersMap(); //new IdentityHashMap<Object,Converter>();
+			} else if (oldFilter != null) {
+				// unfilter the oldStartPath if oldStartPath isn't descendant of startingPath
+				if (oldStartPath == null) {
+					converters = createConvertersMap(); //new IdentityHashMap<Object,Converter>();
+					fireTreeStructureChangedAndExpand(new TreePath(getRoot()), null);
+				} else if (!startingPath.isDescendant(oldStartPath)) {
+					Object node = oldStartPath.getLastPathComponent();
+					handler.removeConverter(getConverter(node), node);
+					fireTreeStructureChangedAndExpand(oldStartPath, null);
+				}
+			}
 			expand = new ArrayList<TreePath>();
-			if (!applyFilter(filter, null, model.getRoot(), expand)) {
-				converters.put(model.getRoot(), new Converter(new int[0], true));
+			TreePath path = startingPath != null ? startingPath : new TreePath(getRoot());
+			if (!applyFilter(filter, path, expand)) {
+				converters.put(path.getLastPathComponent(), new Converter(Converter.EMPTY, true));
 			}
 		}
-		TreePath root = new TreePath(getRoot());
-		fireTreeStructureChanged(root);
+		if (startingPath == null)
+			startingPath = new TreePath(getRoot());
+		fireTreeStructureChanged(startingPath);
 		expandPaths(expand);
 		if (sortOrder != SortOrder.UNSORTED) {
 			if (filter == null)
-				converters = new HashMap<Object,Converter>();
-			expand = sortHierarchy(root);
+				converters = createConvertersMap(); //new IdentityHashMap<Object,Converter>();
+			if (startingPath.getPathCount() > 1 && oldFilter != null) {
+				// upgrade startingPath or sort oldStartPath
+				if (oldStartPath == null) {
+					startingPath = new TreePath(getRoot());
+				} else if (oldStartPath.isDescendant(startingPath)) {
+					startingPath = oldStartPath;
+				} else if (!startingPath.isDescendant(oldStartPath)) {
+					expand = sortHierarchy(oldStartPath);
+					fireTreeStructureChanged(oldStartPath);
+					expandPaths(expand);
+				}
+			}
+			expand = sortHierarchy(startingPath);
+			fireTreeStructureChanged(startingPath);
 			expandPaths(expand);
 		}
+
 	}
 	
-	private void expandPaths(ArrayList<TreePath> paths) {
-		if (paths == null || paths.isEmpty())
-			return;
-		JTree tre = tree;
-		for (TreePath path : paths)
-			tre.expandPath(path);
-	}
-	
-	
-	private boolean applyFilter(Filter filter, TreePath path, Object node, ArrayList<TreePath> expand) {
+	private boolean applyFilter(Filter filter, TreePath path, ArrayList<TreePath> expand) {
+		Object node = path.getLastPathComponent();
 		int count = model.getChildCount(node);
 		int[] viewToModel = null;
 		int viewIndex = 0;
-		TreePath parent = null;
 		boolean needsExpand = false;
 		boolean isExpanded = false;
 		for (int i=0; i<count; i++) {
@@ -336,10 +377,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 				viewToModel[viewIndex++] = i;
 				needsExpand = true;
 			} else if (!leaf) {
-				if (parent == null)
-					parent = path == null ? new TreePath(node) : 
-						path.pathByAddingChild(node);
-				if (applyFilter(filter, parent, child, expand)) {
+				if (applyFilter(filter, path.pathByAddingChild(child), expand)) {
 					if (viewToModel == null)
 						viewToModel = new int[count-i];
 					viewToModel[viewIndex++] = i;
@@ -347,10 +385,8 @@ public class TreeModelTransformer<I> implements TreeModel {
 				}
 			}
 		}
-		if (needsExpand && expand != null && !isExpanded && path != null) {
-			if (parent == null)
-				parent = path.pathByAddingChild(node);
-			expand.add(parent);
+		if (needsExpand && expand != null && !isExpanded && path.getPathCount() > 1) {
+			expand.add(path);
 		}
 		if (viewToModel != null) {
 			if (viewIndex < viewToModel.length)
@@ -363,14 +399,24 @@ public class TreeModelTransformer<I> implements TreeModel {
 		}
 		return false;
 	}
+
+	
+	private void expandPaths(ArrayList<TreePath> paths) {
+		if (paths == null || paths.isEmpty())
+			return;
+		JTree tre = tree;
+		for (TreePath path : paths)
+			tre.expandPath(path);
+	}
 	
 	
 	private void fireTreeStructureChangedAndExpand(TreePath path, ArrayList<TreePath> list) {
 		Enumeration<TreePath> paths = list != null ?
 				Collections.enumeration(list) : tree.getExpandedDescendants(path);
 		fireTreeStructureChanged(path);
-		while (paths.hasMoreElements())
-			tree.expandPath(paths.nextElement());
+		if (paths != null)
+			while (paths.hasMoreElements())
+				tree.expandPath(paths.nextElement());
 	}
 
 	
@@ -424,10 +470,9 @@ public class TreeModelTransformer<I> implements TreeModel {
 	}
 	
 	
-	
 	protected class Handler implements Comparator<ValueIndexPair<I>>,
 			TreeModelListener, TreeExpansionListener {
-
+		
 		private Comparator<I> comparator;
 		
 		void setComparator(Comparator<I> cmp) {
@@ -462,7 +507,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 		
 		private boolean acceptable(TreePath path, Object[] childNodes, int index, ArrayList<TreePath> expand) {
 			return acceptable(path, childNodes, index) ||
-					applyFilter(filter, path, childNodes[index], expand);
+					applyFilter(filter, path.pathByAddingChild(childNodes[index]), expand);
 		}
 		
 		@Override
@@ -471,6 +516,13 @@ public class TreeModelTransformer<I> implements TreeModel {
 		}
 		
 		protected void treeNodesChanged(TreePath path, int[] childIndices, Object[] childNodes) {
+			if (childIndices == null) {
+				// path should be root path
+				// reapply filter
+				if (filter != null)
+					applyFilter(null, null);
+				return;
+			}
 			Converter converter = getConverter(path.getLastPathComponent());
 			ArrayList<TreePath> expand = null;
 			if (converter != null) {
@@ -484,7 +536,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 								!isFiltered(childNodes[i]) &&
 								!acceptable(path, childNodes, i)) {
 							// maybe it likes a child nodes state
-							if (!applyFilter(filter, path, childNodes[i], expand))
+							if (!applyFilter(filter, path.pathByAddingChild(childNodes[i]), expand))
 								remove(path, childNodes[i]);
 							continue;
 						}
@@ -505,7 +557,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 					childNodes = Arrays.copyOf(childNodes, childIndex);
 				}
 				if (sortOrder != SortOrder.UNSORTED && converter.getChildCount() > 1) {
-					sort(path.getLastPathComponent());
+					sort(path.getLastPathComponent(), new ValueIndexPair[converter.getChildCount()]);
 					fireTreeStructureChangedAndExpand(path, null);
 					expandPaths(expand);
 					return;
@@ -527,6 +579,9 @@ public class TreeModelTransformer<I> implements TreeModel {
 					filterIn(vtm, idx, path, expand);
 				return;
 			}
+			// must fire tree nodes changed even if a
+			// structure change will be fired because the
+			// expanded paths need to be updated first
 			fireTreeNodesChanged(path, childIndices, childNodes);
 			maybeFireStructureChange(path, expand);
 		}
@@ -540,8 +595,9 @@ public class TreeModelTransformer<I> implements TreeModel {
 			if (expand != null && !expand.isEmpty()) {
 				Enumeration<TreePath> expanded = tree.getExpandedDescendants(path);
 				fireTreeStructureChanged(path);
-				while (expanded.hasMoreElements())
-					tree.expandPath(expanded.nextElement());
+				if (expanded != null)
+					while (expanded.hasMoreElements())
+						tree.expandPath(expanded.nextElement());
 				expandPaths(expand);
 			}
 		}
@@ -550,7 +606,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 		public void treeNodesInserted(TreeModelEvent e) {
 			treeNodesInserted(e.getTreePath(), e.getChildIndices(), e.getChildren());
 		}
-		
+
 		protected void treeNodesInserted(TreePath path, int[] childIndices, Object[] childNodes) {
 			Object parent = path.getLastPathComponent();
 			Converter converter = getConverter(parent);
@@ -562,7 +618,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 						// path hasn't met the filter criteria, so childNodes must be filtered
 						if (expand == null)
 							expand = new ArrayList<TreePath>();
-						if (!applyFilter(filter, path, childNodes[i], expand))
+						if (!applyFilter(filter, path.pathByAddingChild(childNodes[i]), expand))
 							continue;
 					}
 					// shift the appropriate cached modelIndices
@@ -592,8 +648,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 				int idx = 0;
 				expand = new ArrayList<TreePath>();
 				for (int i=0; i<childIndices.length; i++) {
-					if (acceptable(path, childNodes, i) ||
-							applyFilter(filter, path, childNodes[i], expand)) {
+					if (acceptable(path, childNodes, i, expand)) {
 						if (vtm == null)
 							vtm = new int[childIndices.length-i];
 						vtm[idx++] = childIndices[i];
@@ -613,12 +668,20 @@ public class TreeModelTransformer<I> implements TreeModel {
 			treeNodesRemoved(e.getTreePath(), e.getChildIndices(), e.getChildren());
 		}
 		
+
+		private boolean isFilterStartPath(TreePath path) {
+			if (filterStartPath == null)
+				return path.getPathCount() == 1;
+			return filterStartPath.equals(path);
+		}
+		
 		protected void treeNodesRemoved(TreePath path, int[] childIndices, Object[] childNodes) {
 			Object parent = path.getLastPathComponent();
 			Converter converter = getConverter(parent);
 			if (converter != null) {
 				int childIndex = 0;
 				for (int i=0; i<childNodes.length; i++) {
+					removeConverter(childNodes[i]);
 					int viewIndex = converter.remove(childIndices[i]);
 					switch (viewIndex) {
 					default:
@@ -626,7 +689,17 @@ public class TreeModelTransformer<I> implements TreeModel {
 						childIndices[childIndex++] = viewIndex;
 						break;
 					case Converter.ONLY_INDEX:
-						remove(path.getParentPath(), parent);
+						if (isFiltered(childNodes[i])) {
+							//converters.remove(childNodes[i]);
+							remove(path.getParentPath(), parent);
+						} else {
+							// parent has become a leaf
+							if (filter != null && isFilterStartPath(path)) {
+								converters.put(path.getLastPathComponent(), new Converter(Converter.EMPTY, true));
+							} else {
+								converters.remove(parent);
+							}
+						}
 						return;
 					case Converter.INDEX_NOT_FOUND:
 					}
@@ -655,20 +728,19 @@ public class TreeModelTransformer<I> implements TreeModel {
 				removeConverter(converter, node);
 				ArrayList<TreePath> expand = new ArrayList<TreePath>();
 				if (filter != null) {
-					TreePath parent = path.getParentPath();
-					if (applyFilter(filter, parent, node, expand)) {
+					if (applyFilter(filter, path, expand)) {
 						fireTreeStructureChangedAndExpand(path, expand);
 						if (getSortOrder() != SortOrder.UNSORTED)
-							expand = sortHierarchy(parent);
+							expand = sortHierarchy(path);
 						expandPaths(expand);
 					} else {
-						remove(parent, node);
+						remove(path.getParentPath(), node);
 					}
 				}
 			} else if (filter != null && isFilteredOut(path)) {
 				ArrayList<TreePath> expand = new ArrayList<TreePath>();
 				TreePath parent = path.getParentPath();
-				if (applyFilter(filter, parent, node, expand)) {
+				if (applyFilter(filter, path, expand)) {
 					int modelIndex = model.getIndexOfChild(
 							parent.getLastPathComponent(), node);
 					filterIn(indices(modelIndex), 1, parent, expand);
@@ -679,16 +751,21 @@ public class TreeModelTransformer<I> implements TreeModel {
 		}
 
 		@Override
-		public int compare(ValueIndexPair<I> o1, ValueIndexPair<I> o2) {
-			if (comparator != null)
-				return comparator.compare(o1.value, o2.value);
-			return o1.value.toString().compareTo(o2.value.toString());
+		public final int compare(ValueIndexPair<I> o1, ValueIndexPair<I> o2) {
+			return compareNodes(o1.value, o2.value);
 		}
 
-		private int compare0(Object a, Object b) {
+		
+		protected int compareNodes(I a, I b) {
 			if (comparator != null)
-				return comparator.compare((I)a, (I)b);
+				return comparator.compare(a, b);
 			return a.toString().compareTo(b.toString());
+		}
+
+		private void removeConverter(Object node) {
+			Converter c = getConverter(node);
+			if (c != null)
+				removeConverter(c, node);
 		}
 		
 		private void removeConverter(Converter converter, Object node) {
@@ -703,7 +780,11 @@ public class TreeModelTransformer<I> implements TreeModel {
 		}
 		
 		private boolean isFilteredOut(TreePath path) {
+			if (filterStartPath != null && !filterStartPath.isDescendant(path))
+				return false;
 			TreePath parent = path.getParentPath();
+			// root should always have a converter if filter is non-null,
+			// so if parent is ever null, there is a bug somewhere else
 			Converter c = getConverter(parent.getLastPathComponent());
 			if (c != null) {
 				return getIndexOfChild(
@@ -731,7 +812,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 		
 		private int ascInsertionIndex(int[] vtm, Object parent, Object node, int idx) {
 			for (int i=vtm.length; --i>=0;) {
-				int cmp = compare0(node, model.getChild(parent, vtm[i]));
+				int cmp = compareNodes((I)node, (I)model.getChild(parent, vtm[i]));
 				if (cmp > 0 || (cmp == 0 && idx > vtm[i])) {
 					return i+1;
 				}
@@ -742,9 +823,11 @@ public class TreeModelTransformer<I> implements TreeModel {
 		
 		private int dscInsertionIndex(int[] vtm, Object parent, Object node, int idx) {
 			for (int i=vtm.length; --i>=0;) {
-				int cmp = compare0(node, model.getChild(parent, vtm[i]));
-				if (cmp < 0 || (cmp == 0 && idx < vtm[i])) {
+				int cmp = compareNodes((I)node, (I)model.getChild(parent, vtm[i]));
+				if (cmp < 0) {
 					return i+1;
+				} else if (cmp == 0 && idx < vtm[i]) {
+					return i;
 				}
 			}
 			return 0;
@@ -811,12 +894,21 @@ public class TreeModelTransformer<I> implements TreeModel {
 			int viewIndex = converter.remove(modelIndex);
 			switch (viewIndex) {
 			default:
+				removeConverter(node);
 				fireTreeNodesRemoved(path, indices(viewIndex), nodes(node));
 				break;
 			case Converter.ONLY_INDEX:
+				if (path.getParentPath() == null) {
+					// reached root
+					removeConverter(node);
+					converters.put(parent, new Converter(Converter.EMPTY, true));
+					fireTreeNodesRemoved(path, indices(0), nodes(node));
+					return;
+				}
 				remove(path.getParentPath(), parent);
 				break;
 			case Converter.INDEX_NOT_FOUND:
+				removeConverter(node);
 			}
 		}
 		
@@ -880,6 +972,8 @@ public class TreeModelTransformer<I> implements TreeModel {
 	
 	private static class Converter {
 		
+		static final int[] EMPTY = new int[0];
+		
 		static final int ONLY_INDEX = -2;
 		
 		static final int INDEX_NOT_FOUND = -1;
@@ -909,8 +1003,10 @@ public class TreeModelTransformer<I> implements TreeModel {
 				if (vtm[i] > modelIndex) {
 					vtm[i] -= 1;
 				} else if (vtm[i] == modelIndex) {
-					if (vtm.length == 1)
+					if (vtm.length == 1) {
+						viewToModel = EMPTY;
 						return ONLY_INDEX;
+					}
 					int viewIndex = i;
 					while (--i>=0) {
 						if (vtm[i] > modelIndex)
@@ -970,9 +1066,17 @@ public class TreeModelTransformer<I> implements TreeModel {
 		public boolean acceptNode(TreePath parent, Object node, boolean leaf) {
 			if (leafOnly && !leaf)
 				return false;
-			matcher.reset(node.toString());
+			matcher.reset(getStringValue(node));
 			return matcher.find();
+		}
+		
+		protected String getStringValue(Object node) {
+			return node.toString();
 		}
 	}
 	
+
+	private static Map<Object,Converter> createConvertersMap() {
+		return new HashMap<Object,Converter>();
+	}
 }

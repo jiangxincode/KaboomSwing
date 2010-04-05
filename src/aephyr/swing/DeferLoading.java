@@ -47,8 +47,10 @@ public class DeferLoading implements AdjustmentListener, ActionListener, Propert
 	}
 	
 	public void setLoadingDelay(int delay) {
-		if (timer != null)
+		if (timer != null) {
 			timer.setDelay(delay);
+			timer.setInitialDelay(delay);
+		}
 	}
 	
 	public void start() {

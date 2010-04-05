@@ -12,10 +12,11 @@ import java.awt.geom.GeneralPath;
 import javax.swing.BorderFactory;
 import javax.swing.JMenuBar;
 import javax.swing.UIManager;
+import javax.swing.plaf.UIResource;
 
 public class CurlMenuBar extends JMenuBar {
 
-	private static final int CURL_WIDTH = 70;
+	private static final int DEFAULT_CURL_WIDTH = 80;
 	
 	public CurlMenuBar() {
 		setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
@@ -25,7 +26,17 @@ public class CurlMenuBar extends JMenuBar {
 	
 	private boolean bottomBorderVisible = true;
 	
+	private int curlWidth = DEFAULT_CURL_WIDTH;
+	
 	private Color borderColor;
+	
+	public void setCurlWidth(int width) {
+		curlWidth = width;
+	}
+	
+	public int getCurlWidth() {
+		return curlWidth;
+	}
 	
 	public void setCurlVisible(boolean visible) {
 		curlVisible = visible;
@@ -41,6 +52,14 @@ public class CurlMenuBar extends JMenuBar {
 	
 	public boolean isBottomBorderVisible() {
 		return bottomBorderVisible;
+	}
+	
+	public void setBorderColor(Color color) {
+		borderColor = color;
+	}
+	
+	public Color getBorderColor() {
+		return borderColor;
 	}
 	
 	@Override
@@ -62,12 +81,14 @@ public class CurlMenuBar extends JMenuBar {
 	@Override
 	public void updateUI() {
 		super.updateUI();
-		// Nimbus lacks MenuBar.borderColor property
-		borderColor = UIManager.getColor("nimbusBorder");
-		if (borderColor == null) {
-			borderColor = UIManager.getColor("MenuBar.borderColor");
-			if (borderColor == null)
-				borderColor = Color.GRAY;
+		if (borderColor == null || borderColor instanceof UIResource) {
+			// Nimbus lacks MenuBar.borderColor property
+			borderColor = UIManager.getColor("nimbusBorder");
+			if (borderColor == null) {
+				borderColor = UIManager.getColor("MenuBar.borderColor");
+				if (borderColor == null)
+					borderColor = Color.GRAY;
+			}
 		}
 	}
 	
@@ -75,7 +96,7 @@ public class CurlMenuBar extends JMenuBar {
 	public Dimension getPreferredSize() {
 		Dimension size = super.getPreferredSize();
 		if (isCurlVisible())
-			size.width += CURL_WIDTH-5;
+			size.width += curlWidth-15;
 		return size;
 	}
 	
@@ -87,16 +108,17 @@ public class CurlMenuBar extends JMenuBar {
 			GeneralPath path = new GeneralPath();
 			int h = getHeight();
 			int w = getWidth();
+			int curlWidth = this.curlWidth;
 			if (getComponentOrientation().isLeftToRight()) {
 				path.moveTo(w-2, -1);
-				path.curveTo(w-1-CURL_WIDTH/2, 0, w-1-CURL_WIDTH/2, h-1, w-2-CURL_WIDTH, h);
+				path.curveTo(w-1-curlWidth/2, 0, w-1-curlWidth/2, h-1, w-2-curlWidth, h);
 				path.lineTo(0, h);
 				path.lineTo(0, 0);
 				path.closePath();
 				g2.clip(path);
 			} else {
 				path.moveTo(1, -1);
-				path.curveTo(CURL_WIDTH/2, 0, CURL_WIDTH/2, h-1, CURL_WIDTH, h);
+				path.curveTo(curlWidth/2, 0, curlWidth/2, h-1, curlWidth, h);
 				path.lineTo(w, h);
 				path.lineTo(w, 0);
 				path.closePath();
@@ -108,11 +130,11 @@ public class CurlMenuBar extends JMenuBar {
 			int bot = bottomBorderVisible ? 1 : 0;
 			if (getComponentOrientation().isLeftToRight()) {
 				path.moveTo(w-1, -1);
-				path.curveTo(w-1-CURL_WIDTH/2, 0, w-1-CURL_WIDTH/2, h-bot, w-2-CURL_WIDTH, h-bot);
+				path.curveTo(w-1-curlWidth/2, 0, w-1-curlWidth/2, h-bot, w-2-curlWidth, h-bot);
 				path.lineTo(0, h-bot);
 			} else {
 				path.moveTo(0, -1);
-				path.curveTo(CURL_WIDTH/2, 0, CURL_WIDTH/2, h-bot, CURL_WIDTH, h-bot);
+				path.curveTo(curlWidth/2, 0, curlWidth/2, h-bot, curlWidth, h-bot);
 				path.lineTo(w, h-bot);
 			}
 			Object antialiasing = g2.getRenderingHint(RenderingHints.KEY_ANTIALIASING);

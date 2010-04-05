@@ -125,7 +125,9 @@ public class TreeCellSpanner extends Container implements TreeCellRenderer, Comp
 			// the entire tree will keep being revalidated ad infinitum
 			TreeModel model = tree.getModel();
 			Object node = path.getLastPathComponent();
-			if (model instanceof DefaultTreeModel && node instanceof TreeNode) {
+			if (node instanceof TreeNode && (model instanceof DefaultTreeModel
+					|| (model instanceof TreeModelTransformer<?> &&
+					(model=((TreeModelTransformer<?>)model).getModel()) instanceof DefaultTreeModel))) {
 				((DefaultTreeModel)model).nodeChanged((TreeNode)node);
 			} else {
 				model.valueForPathChanged(path, node.toString());

@@ -6,15 +6,32 @@ import java.util.*;
 import java.util.regex.Pattern;
 
 import javax.swing.*;
+import javax.swing.Timer;
+import javax.swing.GroupLayout.Alignment;
+import javax.swing.LayoutStyle.ComponentPlacement;
 import javax.swing.border.Border;
 import javax.swing.event.*;
 import javax.swing.tree.*;
 
 import aephyr.swing.TreeModelTransformer;
 
-public class TreeSort extends MouseAdapter implements Runnable, ActionListener, MenuListener, ItemListener {
+public class TreeSort extends MouseAdapter implements Runnable,
+		ActionListener, ChangeListener, MenuListener, ItemListener {
 	
-
+	
+	private static class ScrollHeaderLayout extends ScrollPaneLayout {
+		@Override
+		public void layoutContainer(Container parent) {
+			super.layoutContainer(parent);
+			JScrollBar bar = getVerticalScrollBar();
+			if (bar != null && bar.isVisible()) {
+				JViewport header = getColumnHeader();
+				if (header != null)
+					header.setSize(header.getWidth()+bar.getWidth(), header.getHeight());
+			}
+		}
+	}
+	
 	private static int bellCurve(Random random, int n) {
 		int i = Integer.bitCount(random.nextInt());
 		if (i < n)
@@ -78,32 +95,32 @@ public class TreeSort extends MouseAdapter implements Runnable, ActionListener, 
 		random = new Random();
 		model = new DefaultTreeModel(createTreeNode("", 4));
 		transformTree = new JTree(model);
-		transformModel = new TreeModelTransformer(transformTree, model);
-		transformTree.setModel(transformModel);
+		transformTree.setLargeModel(true);
 		transformTree.setRowHeight(20);
 		transformTree.setRootVisible(false);
 		transformTree.setShowsRootHandles(true);
-		
+		transformModel = new TreeModelTransformer(transformTree, model);
+		transformTree.setModel(transformModel);
 		FlowLayout flow = new FlowLayout(FlowLayout.LEADING, 0, 0);
 		flow.setAlignOnBaseline(true);
 		Border border = BorderFactory.createEmptyBorder(0, 5, 0, 3);
 
-		JMenuBar bar = new JMenuBar();
-		bar.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT);
+		JMenuBar leftBar = new JMenuBar();
+		leftBar.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT);
 		
 		JMenu menu = createMenu("Sort");
 		ButtonGroup group = new ButtonGroup();
 		addRadio(menu, "Ascending", false, group);
 		addRadio(menu, "Descending", false, group);
 		addRadio(menu, "Unsorted", true, group);
-		bar.add(menu);
+		leftBar.add(menu);
 		
 		menu = createMenu("Filter");
 		menu.add(createTextPanel(flow, border, "Regex: ", "Filter"));
-		bar.add(menu);
+		leftBar.add(menu);
 
-		JScrollPane left = new JScrollPane(transformTree);
-		left.setColumnHeaderView(bar);
+		JScrollPane left = createScrollPane(transformTree, leftBar);
+		left.setLayout(new ScrollHeaderLayout());
 
 		tree = new JTree(model);
 		tree.setRowHeight(20);
@@ -122,16 +139,33 @@ public class TreeSort extends MouseAdapter implements Runnable, ActionListener, 
 		popup.add("NodesChanged on All Children").addActionListener(this);
 		tree.setComponentPopupMenu(popup);
 		
-		JMenuBar insertBar = new JMenuBar();
-		insertBar.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT);
-		menu = createMenu("Insert");
+		JMenuBar rightBar = new JMenuBar();
+		rightBar.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT);
+		insertMenu = menu = createMenu("Insert");
 		menu.add(createTextPanel(flow, border, "Insert: ", "Insert"));
 		menu.addSeparator();
 		menu.add("Use popup for other changes");
-		insertBar.add(menu);
+		rightBar.add(menu);
+		simulationMenu = menu = createMenu("Simulation");
+		simulationFilter = new JCheckBoxMenuItem("Can change filter", false);
+		menu.add(simulationFilter);
+		simulationSort = new JCheckBoxMenuItem("Can change sort order", false);
+		menu.add(simulationSort);
+		menu.addSeparator();
+		JMenuItem item = new JMenuItem("Start");
+		item.setActionCommand("Simulation");
+		item.addActionListener(this);
+		menu.add(item);
+		rightBar.add(menu);
+
+		simulationPanel = new JPanel(null);
+		simulationPanel.setVisible(false);
 		
-		JScrollPane right = new JScrollPane(tree);
-		right.setColumnHeaderView(insertBar);
+		JScrollPane rightScroller = createScrollPane(tree, rightBar);
+		rightScroller.setLayout(new ScrollHeaderLayout());
+		JPanel right = new JPanel(new BorderLayout());
+		right.add(rightScroller, BorderLayout.CENTER);
+		right.add(simulationPanel, BorderLayout.SOUTH);
 		
 		JPanel grid = new JPanel(new GridLayout(1, 2));
 		grid.add(left);
@@ -140,7 +174,7 @@ public class TreeSort extends MouseAdapter implements Runnable, ActionListener, 
 		JFrame frame = new JFrame(getClass().getSimpleName());
 		frame.add(grid, BorderLayout.CENTER);
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-		frame.setSize(500, 600);
+		frame.setSize(600, 700);
 		frame.setLocationRelativeTo(null);
 		frame.setVisible(true);		
 	}
@@ -167,6 +201,12 @@ public class TreeSort extends MouseAdapter implements Runnable, ActionListener, 
 		panel.add(field);
 		return panel;
 	}
+	private JScrollPane createScrollPane(JTree tree, JMenuBar header) {
+		JScrollPane scroller = new JScrollPane(tree);
+		scroller.setColumnHeaderView(header);
+		scroller.getColumnHeader().addChangeListener(this);
+		return scroller;
+	}
 	
 	private Random random;
 	
@@ -177,6 +217,18 @@ public class TreeSort extends MouseAdapter implements Runnable, ActionListener, 
 	private JTree tree;
 	
 	private JTree transformTree;
+	
+	private JMenu insertMenu;
+	
+	private JMenu simulationMenu;
+	
+	private JCheckBoxMenuItem simulationFilter;
+	
+	private JCheckBoxMenuItem simulationSort;
+	
+	private JPanel simulationPanel;
+	
+	private Simulation simulation;
 	
 	private int bellCurve() {
 		int i = Integer.bitCount(random.nextInt());
@@ -200,18 +252,34 @@ public class TreeSort extends MouseAdapter implements Runnable, ActionListener, 
 		c[0] = Character.toUpperCase(c[0]);
 		return new String(c);
 	}
-	
+
+	private TreePath getPath(int x, int y) {
+		TreePath path = tree.getClosestPathForLocation(x, y);
+		Rectangle nb = tree.getPathBounds(path);
+		if (x >= nb.x && y >= nb.y && y < nb.y+nb.height)
+			return path;
+		return null;
+	}
+
+	@Override
+	public void mousePressed(MouseEvent e) {
+		if (e.getClickCount() == 1 && SwingUtilities.isLeftMouseButton(e)
+				&& !e.isControlDown() && !e.isShiftDown()) {
+			TreePath path = getPath(e.getX(), e.getY());
+			if (path != null)
+				tree.setSelectionPath(path);
+		}
+	}
 
 	@Override
 	public void mouseClicked(MouseEvent e) {
 		if (e.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(e)) {
-			TreePath path = tree.getPathForLocation(e.getX(), e.getY());
-			if (path == null)
-				return;
-			tree.startEditingAtPath(path);
+			TreePath path = getPath(e.getX(), e.getY());
+			if (path != null)
+				tree.startEditingAtPath(path);
 		}
 	}
-	
+
 	@Override
 	public void itemStateChanged(ItemEvent e) {
 		if (e.getStateChange() != ItemEvent.SELECTED)
@@ -221,14 +289,21 @@ public class TreeSort extends MouseAdapter implements Runnable, ActionListener, 
 		transformModel.setSortOrder(SortOrder.valueOf(text.toUpperCase()));
 	}
 	
+	@Override
+	public void stateChanged(ChangeEvent e) {
+		JViewport viewport = (JViewport)e.getSource();
+		viewport.setViewPosition(new Point(0, 0));
+	}
 	
 	@Override
 	public void actionPerformed(ActionEvent e) {
 		if (e.getActionCommand() == "Filter") {
-			JTextField filter = (JTextField)e.getSource();
-			String regex = filter.getText();
-			transformModel.setFilter(regex.isEmpty() ? null :
-					new TreeModelTransformer.RegexFilter(Pattern.compile(regex), false));
+			JTextField field = (JTextField)e.getSource();
+			String regex = field.getText();
+			TreeModelTransformer.Filter filter = regex.isEmpty() ? null :
+				new TreeModelTransformer.RegexFilter(Pattern.compile(regex), false);
+			TreePath startingPath = filter == null ? null : transformTree.getSelectionPath();
+			transformModel.setFilter(filter, startingPath);
 			MenuSelectionManager.defaultManager().clearSelectedPath();
 		} else if (e.getActionCommand() == "Insert") {
 			TreePath path = tree.getSelectionPath();
@@ -252,10 +327,9 @@ public class TreeSort extends MouseAdapter implements Runnable, ActionListener, 
 			} else {
 				text = createCellValue();
 			}
-			MutableTreeNode node = createTreeNode(text,
-					path == null ? 4 : (5-path.getPathCount()));
-			model.insertNodeInto(node, parent, index);
 			path = path == null ? new TreePath(parent) : path.getParentPath();
+			MutableTreeNode node = createTreeNode(text, (5-path.getPathCount()));
+			model.insertNodeInto(node, parent, index);
 			tree.setSelectionPath(path.pathByAddingChild(node));
 		} else if (e.getActionCommand() == "Remove") {
 			TreePath[] paths = tree.getSelectionPaths();
@@ -276,6 +350,10 @@ public class TreeSort extends MouseAdapter implements Runnable, ActionListener, 
 			changeChildNodes(true);
 		} else if (e.getActionCommand() == "NodesChanged on All Children") {
 			changeChildNodes(false);
+		} else if (e.getActionCommand() == "Simulation") {
+			if (simulation == null)
+				simulation = new Simulation();
+			simulation.start(simulationFilter.isSelected(), simulationSort.isSelected());
 		}
 	}
 	
@@ -287,23 +365,27 @@ public class TreeSort extends MouseAdapter implements Runnable, ActionListener, 
 		TreePath[] paths = tree.getSelectionPaths();
 		if (paths == null)
 			return;
-		for (TreePath path : paths) {
-			MutableTreeNode node = getNode(path);
-			int count = node.getChildCount();
-			int mutateCount = rdm ? random.nextInt(count)+1 : count;
-			int[] indices = new int[mutateCount];
-			for (int i=mutateCount, offset=-1; --i>=0;) {
-				int length = (count-offset-1)/(i+1);
-				int j = random.nextInt(length)+1;
-				int idx = offset+j;
-				indices[mutateCount-i-1] = idx;
-				MutableTreeNode child = (MutableTreeNode)model.getChild(node, idx);
-				child.setUserObject(createCellValue());
-				offset += j;
-			}
-			model.nodesChanged(node, indices);
+		for (TreePath path : paths)
+			changeChildNodes(getNode(path), rdm);
+	}
+	
+	private int[] changeChildNodes(MutableTreeNode node, boolean rdm) {
+		int count = node.getChildCount();
+		if (count == 0)
+			return null;
+		int mutateCount = rdm ? random.nextInt(count)+1 : count;
+		int[] indices = new int[mutateCount];
+		for (int i=mutateCount, offset=-1; --i>=0;) {
+			int length = (count-offset-1)/(i+1);
+			int j = random.nextInt(length)+1;
+			int idx = offset+j;
+			indices[mutateCount-i-1] = idx;
+			MutableTreeNode child = (MutableTreeNode)node.getChildAt(idx);
+			child.setUserObject(createCellValue());
+			offset += j;
 		}
-
+		model.nodesChanged(node, indices);
+		return indices;
 	}
 	
 	
@@ -320,5 +402,498 @@ public class TreeSort extends MouseAdapter implements Runnable, ActionListener, 
 		Dimension size = popup.getPreferredSize();
 		Container menubar = menu.getParent();
 		menu.setMenuLocation(menubar.getWidth()-menu.getX()-size.width, menu.getHeight());
+	}
+
+	private static class State {
+		static final String INSERT = "Insert";
+		static final String REMOVE = "Remove";
+		static final String CHANGE = "Change";
+		static final String NODES_CHANGE = "NodesChange";
+		static final String STRUCTURE_CHANGE = "StructureChange";
+		static final String FILTER = "Filter";
+		static final String SORT_ORDER = "SortOrder";
+		
+		State(String chg, String pri) {
+			this(chg, pri, (String[])null);
+		}
+		
+		State(String chg, String pri, String ... sec) {
+			change = chg;
+			primary = pri;
+			secondary = sec;
+		}
+		
+		String change;
+		
+		String primary;
+		
+		String[] secondary;
+		
+		DefaultMutableTreeNode transformRoot;
+
+		TreePath[] expand;
+		
+		DefaultMutableTreeNode root;
+		
+		void setSecondary(String ... sec) {
+			secondary = sec;
+		}
+		
+		void buildState(JTree transformTree, TreeModel untransformedModel) {
+			TreeModel mdl = transformTree.getModel();
+			Object mdlNode = mdl.getRoot();
+			transformRoot = new DefaultMutableTreeNode(mdlNode.toString());
+			TreePath path = new TreePath(mdlNode);
+			ArrayList<TreePath> expanded = Collections.list(transformTree.getExpandedDescendants(path));
+			expand = new TreePath[expanded.size()];
+			buildState(transformRoot, mdl, path, expanded, 0);
+			
+			TreeNode modelNode = (TreeNode)untransformedModel.getRoot();
+			root = new DefaultMutableTreeNode(modelNode.toString());
+			buildNode(root, modelNode);
+		}
+		
+		
+		private int buildState(DefaultMutableTreeNode node, TreeModel mdl, TreePath path, ArrayList<TreePath> exp, int index) {
+			if (exp.contains(path))
+				expand[index++] = buildPath(node);
+			Object mdlNode = path.getLastPathComponent();
+			int count = mdl.getChildCount(mdlNode);
+			for (int i=0; i<count; i++) {
+				Object mdlChild = mdl.getChild(mdlNode, i);
+				DefaultMutableTreeNode child = new DefaultMutableTreeNode(mdlChild.toString());
+				node.add(child);
+				index = buildState(child, mdl, path.pathByAddingChild(mdlChild), exp, index);
+			}
+			return index;
+		}
+		
+		private void buildNode(DefaultMutableTreeNode node, TreeNode mdlNode) {
+			int count = mdlNode.getChildCount();
+			for (int i=0; i<count; i++) {
+				TreeNode mdlChild = mdlNode.getChildAt(i);
+				DefaultMutableTreeNode child = new DefaultMutableTreeNode(mdlChild.toString());
+				node.add(child);
+				buildNode(child, mdlChild);
+			}
+		}
+		
+		private TreePath buildPath(TreeNode node) {
+			TreeNode parent = node.getParent();
+			if (parent == null)
+				return new TreePath(node);
+			return buildPath(parent).pathByAddingChild(node);
+		}
+		
+		String getSecondaryText() {
+			if (secondary == null)
+				return null;
+			if (secondary.length == 1)
+				return secondary[0];
+			StringBuilder str = new StringBuilder();
+			String[] s = secondary;
+			for (int i=0;;) {
+				str.append(s[i]);
+				if (++i >= s.length)
+					break;
+				str.append('\n');
+			}
+			return str.toString();
+		}
+		
+		@Override
+		public String toString() {
+			StringBuilder str = new StringBuilder(100);
+			str.append(change).append(": ").append(primary);
+			if (secondary != null) {
+				for (String s : secondary) {
+					str.append('\n').append('\t').append(s);
+				}
+			}
+			return str.toString();
+		}
+		
+	}
+	
+	
+
+	
+
+	private static final int STATE_SIZE = 31;
+	
+	private class Simulation implements ActionListener, ItemListener, ChangeListener {
+		
+		private JButton createButton(String text) {
+			JButton b = small(new JButton(text));
+			b.addActionListener(this);
+			return b;
+		}
+		
+		private <T extends JComponent> T small(T c) {
+			c.putClientProperty("JComponent.sizeVariant", "small");
+			c.updateUI();
+			return c;
+		}
+		
+		Simulation() {
+			simModel = new DefaultTreeModel(new DefaultMutableTreeNode());
+			timer = new Timer(100, this);
+			timer.setActionCommand("Timer");
+			prev = createButton("Prev");
+			next = createButton("Next");
+			pause = small(new JToggleButton("Pause"));
+			pause.addItemListener(this);
+			
+			JButton close = createButton("Close");
+			
+			transformed = small(new JCheckBox("Transformed", true));
+			transformed.addItemListener(this);
+			expand = small(new JCheckBox("Expand", true));
+			expand.addItemListener(this);
+			
+			SpinnerNumberModel intervalModel = new SpinnerNumberModel(100, 10, 9000, 100);
+			intervalModel.addChangeListener(this);
+			JSpinner interval = small(new JSpinner(intervalModel));
+			
+			changes = small(new JComboBox());
+			changes.setMaximumRowCount(32);
+			changes.addItemListener(this);
+			changes.setRenderer(new DefaultListCellRenderer() {
+
+				State state;
+				
+				public Component getListCellRendererComponent(JList list, Object value, int index, boolean sel, boolean foc) {
+					state = value instanceof State ? (State)value : null;
+					super.getListCellRendererComponent(list, state == null ? value : " ", index, sel, foc);
+					return this;
+				}
+				
+				protected void paintComponent(Graphics g) {
+					if (state == null) {
+						super.paintComponent(g);
+						return;
+					}
+					int width = getWidth();
+					int height = getHeight();
+					if (isOpaque()) {
+						g.setColor(getBackground());
+						g.fillRect(0, 0, width, height);
+					}
+					g.setColor(getForeground());
+					g.setFont(getFont());
+					FontMetrics fm = g.getFontMetrics();
+					int leftWidth = fm.stringWidth(State.STRUCTURE_CHANGE);
+					String str = state.change;
+					int strWidth = fm.stringWidth(state.change);
+					int y =(height-fm.getHeight())/2+fm.getAscent();
+					g.drawString(str, leftWidth-strWidth, y);
+					g.drawString(": ", leftWidth, y);
+					g.drawString(state.primary, leftWidth+fm.stringWidth(": "), y);
+				}
+			});
+			String cell = "WWW";
+			changes.setPrototypeDisplayValue(State.STRUCTURE_CHANGE+": "+Arrays.toString(new String[]{"", cell, cell, cell}));
+			secondary = small(new JTextArea(3, 15));
+			secondary.setEditable(false);
+			JScrollPane scroller = small(new JScrollPane(secondary));
+			
+			JLabel intLabel = small(new JLabel("Interval:"));
+			
+			GroupLayout layout = new GroupLayout(simulationPanel);
+			simulationPanel.setLayout(layout);
+			final int prf = GroupLayout.PREFERRED_SIZE;
+			layout.setHorizontalGroup(layout.createParallelGroup(Alignment.TRAILING)
+				.addGroup(layout.createSequentialGroup()
+					.addComponent(prev).addComponent(pause).addComponent(next)
+					.addGap(10, 10, Short.MAX_VALUE)
+					.addComponent(intLabel).addGap(2)
+					.addComponent(interval, prf, prf, prf))
+				.addComponent(changes)
+				.addGroup(layout.createSequentialGroup()
+					.addComponent(scroller)
+					.addGroup(layout.createParallelGroup()
+						.addComponent(transformed)
+						.addComponent(expand)
+						.addComponent(close, Alignment.CENTER))
+					.addGap(5)));
+			layout.setVerticalGroup(layout.createSequentialGroup()
+				.addGroup(layout.createBaselineGroup(true, true)
+					.addComponent(prev).addComponent(pause).addComponent(next)
+					.addComponent(intLabel)
+					.addComponent(interval, prf, prf, prf))
+				.addComponent(changes)
+				.addGroup(layout.createParallelGroup(Alignment.LEADING)
+					.addComponent(scroller)
+					.addGroup(layout.createSequentialGroup()
+						.addComponent(transformed)
+						.addComponent(expand)
+						.addComponent(close))));
+		}
+
+		private Timer timer;
+		
+		private JButton prev;
+		
+		private JToggleButton pause;
+		
+		private JButton next;
+		
+		private JComboBox changes;
+		
+		private JTextArea secondary;
+		
+		private JCheckBox transformed;
+		
+		private JCheckBox expand;
+		
+		
+		private ArrayDeque<State> states = new ArrayDeque<State>(STATE_SIZE);
+		
+		private DefaultTreeModel simModel;
+		
+		private boolean canChangeFilter;
+		
+		private boolean canChangeSort;
+		
+		@Override
+		public void stateChanged(ChangeEvent e) {
+			SpinnerNumberModel mdl = (SpinnerNumberModel)e.getSource();
+			int delay = mdl.getNumber().intValue();
+			timer.setDelay(delay);
+			timer.setInitialDelay(delay);
+		}
+		
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			if (e.getActionCommand() == "Timer") {
+				doSimulation();
+			} else if (e.getSource() == prev) {
+				changes.setSelectedIndex(changes.getSelectedIndex()-1);
+			} else if (e.getSource() == next) {
+				changes.setSelectedIndex(changes.getSelectedIndex()+1);
+			} else if (e.getActionCommand() == "Close") {
+				stop();
+			}
+		}
+		
+		@Override
+		public void itemStateChanged(ItemEvent e) {
+			if (e.getSource() == pause) {
+				boolean paused = e.getStateChange() == ItemEvent.SELECTED;
+				if (paused) {
+					timer.stop();
+					State[] array = states.toArray(new State[states.size()]);
+					int index = array.length-1;
+					changes.setModel(new DefaultComboBoxModel(array));
+					boolean enabled = index > 0;
+					prev.setEnabled(enabled);
+					transformed.setEnabled(enabled);
+					changes.setEnabled(enabled);
+					expand.setEnabled(enabled);
+					if (enabled)
+						changes.setSelectedIndex(index);
+				} else {
+					timer.start();
+					clearChangesModel();
+					setRunningState();
+				}
+			} else if (e.getSource() == changes) {
+				int idx = changes.getSelectedIndex();
+				if (idx < 0)
+					return;
+				int lastIndex = changes.getModel().getSize() - 1;
+				if (idx == 0) {
+					prev.setEnabled(false);
+					next.setEnabled(lastIndex > 0);
+				} else if (idx == lastIndex) {
+					prev.setEnabled(lastIndex > 0);
+					next.setEnabled(false);
+				} else {
+					prev.setEnabled(true);
+					next.setEnabled(true);
+				}
+				State state = (State)changes.getSelectedItem();
+				resetTree(state);
+				secondary.setText(state.getSecondaryText());
+			} else if (e.getSource() == transformed) {
+				resetTree((State)changes.getSelectedItem());
+			} else if (e.getSource() == expand) {
+				State state = (State)changes.getSelectedItem();
+				if (simModel.getRoot() == state.transformRoot) {
+					if (expand.isSelected()) {
+						expand(state);
+					} else {
+						simModel.nodeStructureChanged(state.transformRoot);
+					}
+				}
+					
+			}
+		}
+		
+		private void resetTree(State state) {
+			if (transformed.isSelected()) {
+				simModel.setRoot(state.transformRoot);
+				if (expand.isSelected())
+					expand(state);
+			} else {
+				simModel.setRoot(state.root);
+			}
+		}
+		
+		private void expand(State state) {
+			JTree tre = tree;
+			for (TreePath path : state.expand)
+				tre.expandPath(path);
+		}
+		
+		private JPopupMenu treePopup;
+		
+		private void setComponentsState(boolean b) {
+			if (b) {
+				tree.setComponentPopupMenu(treePopup);
+			} else {
+				treePopup = tree.getComponentPopupMenu();
+				tree.setComponentPopupMenu(null);
+			}
+			insertMenu.setEnabled(b);
+			simulationMenu.setEnabled(b);
+			simulationPanel.setVisible(!b);
+		}
+		
+		private void setRunningState() {
+			transformed.setEnabled(false);
+			expand.setEnabled(false);
+			prev.setEnabled(false);
+			next.setEnabled(false);
+			changes.setEnabled(false);
+		}
+		
+		void start(boolean canChangeFilter, boolean canChangeSort) {
+			this.canChangeFilter = canChangeFilter;
+			this.canChangeSort = canChangeSort;
+			tree.setModel(simModel);
+			setComponentsState(false);
+			setRunningState();
+			timer.start();
+		}
+		
+		void stop() {
+			timer.stop();
+			tree.setModel(model);
+			setComponentsState(true);
+			states.clear();
+			clearChangesModel();
+			simModel.setRoot(new DefaultMutableTreeNode());
+		}
+		
+		private void clearChangesModel() {
+			((DefaultComboBoxModel)changes.getModel()).removeAllElements();
+		}
+		
+		private void doSimulation() {
+			State state = null;
+			MutableTreeNode node;
+			String value;
+			int[] indices;
+			try {
+				int changes = 13;
+				if (canChangeFilter || canChangeSort)
+					changes++;
+				int action = random.nextInt(changes);
+				switch (action) {
+				case 0: case 1: case 2: // insert
+					node = randomNode();
+					value = createCellValue();
+					state = new State(State.INSERT, string(node), value);
+					model.insertNodeInto(createTreeNode(value, 5-pathCount(node)),
+							node, random.nextInt(node.getChildCount()+1));
+					break;
+				case 3: case 4: case 5: // remove
+					node = randomNode();
+					int count = pathCount(node);
+					if (count == 1) {
+						return;
+					} else if (count == 2) {
+						if (node.getParent().getChildCount() == 1)
+							return;
+					}
+					state = new State(State.REMOVE, string(node));
+					model.removeNodeFromParent(node);
+					break;
+				case 6: case 7: case 8: // change
+					node = randomNode();
+					value = createCellValue();
+					state = new State(State.CHANGE, string(node), value);
+					node.setUserObject(value);
+					model.nodeChanged(node);
+					break;
+				case 9: case 10: // nodes changed on random
+				case 11: // nodes changed on all
+					node = randomNode();
+					state = new State(State.NODES_CHANGE, string(node));
+					indices = changeChildNodes(node, action != 11);
+					if (indices == null)
+						return;
+					state.setSecondary(Arrays.toString(indices));
+					break;
+				case 12: // structure change
+					// TODO
+					return;
+				case 13: // filter/sort change
+					state = !canChangeSort ? changeFilter() :
+						!canChangeFilter ? changeSort() :
+						random.nextBoolean() ? changeFilter() : changeSort();
+					// TODO return cos not actually implemented yet
+					return;
+				}
+				addState(state);
+			} catch (Exception e) {
+				System.err.println("state: "+state);
+				e.printStackTrace();
+				pause.setSelected(true);
+			}
+		}
+		
+		private void addState(State state) {
+			if (states.size() == STATE_SIZE)
+				states.pollFirst();
+			state.buildState(transformTree, model);
+			states.addLast(state);
+		}
+		
+		private State changeFilter() {
+			return null;
+		}
+		
+		private State changeSort() {
+			return null;
+		}
+		
+		private String string(TreeNode node) {
+			return Arrays.toString(simModel.getPathToRoot(node));
+		}
+		
+	}
+	
+
+	private MutableTreeNode randomNode() {
+		int count = random.nextInt(4);
+		MutableTreeNode node = (MutableTreeNode)model.getRoot();
+		while (--count >= 0) {
+			int i = node.getChildCount();
+			if (i == 0)
+				break;
+			node = (MutableTreeNode)node.getChildAt(random.nextInt(i));
+		}
+		return node;
+	}
+	
+	private static int pathCount(TreeNode node) {
+		int count = 1;
+		while (node.getParent() != null) {
+			node = node.getParent();
+			count++;
+		}
+		return count;
 	}
 }
