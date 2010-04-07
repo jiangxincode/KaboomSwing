@@ -27,6 +27,8 @@ abstract class CachingModel {
 		
 		@Override
 		protected void done() {
+			if (values == null)
+				return;
 			int idx = index-offset;
 			if (idx < 0 || idx >= values.length || values[idx] != this) {
 				idx = Arrays.asList(values).indexOf(this);

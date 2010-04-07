@@ -328,7 +328,7 @@ public class TreeSort extends MouseAdapter implements Runnable,
 				text = createCellValue();
 			}
 			path = path == null ? new TreePath(parent) : path.getParentPath();
-			MutableTreeNode node = createTreeNode(text, (5-path.getPathCount()));
+			MutableTreeNode node = createTreeNode(text, (4-path.getPathCount()));
 			model.insertNodeInto(node, parent, index);
 			tree.setSelectionPath(path.pathByAddingChild(node));
 		} else if (e.getActionCommand() == "Remove") {
@@ -805,7 +805,7 @@ public class TreeSort extends MouseAdapter implements Runnable,
 					node = randomNode();
 					value = createCellValue();
 					state = new State(State.INSERT, string(node), value);
-					model.insertNodeInto(createTreeNode(value, 5-pathCount(node)),
+					model.insertNodeInto(createTreeNode(value, 4-pathCount(node)),
 							node, random.nextInt(node.getChildCount()+1));
 					break;
 				case 3: case 4: case 5: // remove

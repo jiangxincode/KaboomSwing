@@ -55,6 +55,7 @@ public class RolloverSupport extends MouseAdapter implements ComponentListener, 
 		}
 		if (c != null) {
 			c.setBounds(b);
+			c.doLayout();
 			repaint(p, c);
 			rolloverSupport = s;
 		} else if (rolloverSupport == s) {

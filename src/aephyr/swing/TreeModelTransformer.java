@@ -1,5 +1,6 @@
 package aephyr.swing;
 
+import java.text.Collator;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -306,11 +307,19 @@ public class TreeModelTransformer<I> implements TreeModel {
 		TreePath oldStartPath = filterStartPath;
 		this.filter = filter;
 		filterStartPath = startingPath;
-		applyFilter(oldFilter, oldStartPath);
+		applyFilter(oldFilter, oldStartPath, true);
+	}
+	
+	public Filter getFilter() {
+		return filter;
+	}
+	
+	public TreePath getFilterStartPath() {
+		return filterStartPath;
 	}
 	
 	
-	private void applyFilter(Filter oldFilter, TreePath oldStartPath) {
+	private void applyFilter(Filter oldFilter, TreePath oldStartPath, boolean sort) {
 		TreePath startingPath = filterStartPath;
 		ArrayList<TreePath> expand = null;
 		if (filter == null) {
@@ -339,7 +348,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 			startingPath = new TreePath(getRoot());
 		fireTreeStructureChanged(startingPath);
 		expandPaths(expand);
-		if (sortOrder != SortOrder.UNSORTED) {
+		if (sort && sortOrder != SortOrder.UNSORTED) {
 			if (filter == null)
 				converters = createConvertersMap(); //new IdentityHashMap<Object,Converter>();
 			if (startingPath.getPathCount() > 1 && oldFilter != null) {
@@ -475,8 +484,11 @@ public class TreeModelTransformer<I> implements TreeModel {
 		
 		private Comparator<I> comparator;
 		
+		private Collator collator = Collator.getInstance();
+		
 		void setComparator(Comparator<I> cmp) {
 			comparator = cmp;
+			collator = cmp == null ? Collator.getInstance() : null;
 		}
 		
 		Comparator<I> getComparator() {
@@ -520,7 +532,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 				// path should be root path
 				// reapply filter
 				if (filter != null)
-					applyFilter(null, null);
+					applyFilter(null, null, true);
 				return;
 			}
 			Converter converter = getConverter(path.getLastPathComponent());
@@ -552,15 +564,15 @@ public class TreeModelTransformer<I> implements TreeModel {
 					maybeFireStructureChange(path, expand);
 					return;
 				}
-				if (childIndex != childIndices.length) {
-					childIndices = Arrays.copyOf(childIndices, childIndex);
-					childNodes = Arrays.copyOf(childNodes, childIndex);
-				}
 				if (sortOrder != SortOrder.UNSORTED && converter.getChildCount() > 1) {
 					sort(path.getLastPathComponent(), new ValueIndexPair[converter.getChildCount()]);
 					fireTreeStructureChangedAndExpand(path, null);
 					expandPaths(expand);
 					return;
+				}
+				if (childIndex != childIndices.length) {
+					childIndices = Arrays.copyOf(childIndices, childIndex);
+					childNodes = Arrays.copyOf(childNodes, childIndex);
 				}
 			} else if (filter != null && isFilteredOut(path)) {
 				// see if the filter likes the nodes new states
@@ -681,6 +693,12 @@ public class TreeModelTransformer<I> implements TreeModel {
 			if (converter != null) {
 				int childIndex = 0;
 				for (int i=0; i<childNodes.length; i++) {
+					// TODO probably stuck with the same situation as treeStructureChanged
+					// not enough information to remove all child node converters
+					// thus memory leakage
+					// Though as long as the node is a TreeNode and it's structure is intact,
+					// DefaultTreeModel will still provide all its children so that the below method
+					// will (seem to) work (with DefaultTreeModel)
 					removeConverter(childNodes[i]);
 					int viewIndex = converter.remove(childIndices[i]);
 					switch (viewIndex) {
@@ -690,7 +708,6 @@ public class TreeModelTransformer<I> implements TreeModel {
 						break;
 					case Converter.ONLY_INDEX:
 						if (isFiltered(childNodes[i])) {
-							//converters.remove(childNodes[i]);
 							remove(path.getParentPath(), parent);
 						} else {
 							// parent has become a leaf
@@ -700,7 +717,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 								converters.remove(parent);
 							}
 						}
-						return;
+						break;
 					case Converter.INDEX_NOT_FOUND:
 					}
 				}
@@ -721,34 +738,24 @@ public class TreeModelTransformer<I> implements TreeModel {
 
 		@Override
 		public void treeStructureChanged(TreeModelEvent e) {
-			TreePath path = e.getTreePath();
-			Object node = path.getLastPathComponent();
-			Converter converter = getConverter(node);
-			if (converter != null) {
-				removeConverter(converter, node);
-				ArrayList<TreePath> expand = new ArrayList<TreePath>();
+			if (converters != null) {
+				// not enough information to properly clean up
+				// reapply filter/sort
+				converters = createConvertersMap();
 				if (filter != null) {
-					if (applyFilter(filter, path, expand)) {
-						fireTreeStructureChangedAndExpand(path, expand);
-						if (getSortOrder() != SortOrder.UNSORTED)
-							expand = sortHierarchy(path);
-						expandPaths(expand);
-					} else {
-						remove(path.getParentPath(), node);
-					}
+					applyFilter(null, null, false);
 				}
-			} else if (filter != null && isFilteredOut(path)) {
-				ArrayList<TreePath> expand = new ArrayList<TreePath>();
-				TreePath parent = path.getParentPath();
-				if (applyFilter(filter, path, expand)) {
-					int modelIndex = model.getIndexOfChild(
-							parent.getLastPathComponent(), node);
-					filterIn(indices(modelIndex), 1, parent, expand);
+				if (sortOrder != SortOrder.UNSORTED) {
+					TreePath path = new TreePath(getRoot());
+					ArrayList<TreePath> expand = sortHierarchy(path);
+					fireTreeStructureChangedAndExpand(path, expand);
 				}
+				// at least one of the above if statements better execute!
 			} else {
-				fireTreeStructureChanged(path);
+				fireTreeStructureChanged(e.getTreePath());
 			}
 		}
+		
 
 		@Override
 		public final int compare(ValueIndexPair<I> o1, ValueIndexPair<I> o2) {
@@ -759,7 +766,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 		protected int compareNodes(I a, I b) {
 			if (comparator != null)
 				return comparator.compare(a, b);
-			return a.toString().compareTo(b.toString());
+			return collator.compare(a.toString(), b.toString());
 		}
 
 		private void removeConverter(Object node) {
