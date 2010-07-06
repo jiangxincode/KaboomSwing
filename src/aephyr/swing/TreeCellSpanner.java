@@ -50,6 +50,10 @@ public class TreeCellSpanner extends Container implements TreeCellRenderer, Comp
 	
 	private TreePath path;
 	
+	public TreeCellRenderer getRenderer() {
+		return renderer;
+	}
+	
 	@Override
 	public Component getTreeCellRendererComponent(JTree tree, Object value,
 			boolean selected, boolean expanded, boolean leaf, int row,

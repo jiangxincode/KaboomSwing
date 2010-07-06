@@ -1,26 +1,41 @@
 package aephyr.swing;
 
+import java.awt.AWTEvent;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.FocusTraversalPolicy;
+import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
+import java.awt.KeyboardFocusManager;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.awt.event.AdjustmentEvent;
 import java.awt.event.AdjustmentListener;
+import java.awt.event.FocusEvent;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.GeneralPath;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.swing.BorderFactory;
+import javax.swing.JComponent;
 import javax.swing.JMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTree;
+import javax.swing.KeyStroke;
 import javax.swing.MenuSelectionManager;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
 import javax.swing.event.TreeModelEvent;
@@ -32,22 +47,33 @@ import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreeModel;
 import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
+import javax.swing.tree.TreeSelectionModel;
 
 public class TreeMenuBar extends CurlMenuBar {
+	
+	private static final String PREVIOUS_MENU = "Previous Menu";
+	
+	private static final String NEXT_MENU = "Next Menu";
+	
+	private static final String ENTER = "Enter";
 	
 	public interface Model extends TreeModel {
 		void setRoot(Object root);
 	}
 	
 	public TreeMenuBar() {
-		menus = new ArrayList<JMenu>();
+		menus = new ArrayList<ArrowMenu>();
 		handler = createHandler();
-		JMenu root = createRootMenu();
+		ArrowMenu root = createRootMenu();
 		menus.add(root);
 		add(root);
+		registerKeyboardAction(handler,
+				KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0),
+				JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
 	}
 	
-	private List<JMenu> menus;
+	
+	private List<ArrowMenu> menus;
 	
 	private Model model;
 	
@@ -67,17 +93,28 @@ public class TreeMenuBar extends CurlMenuBar {
 	
 	private boolean rootVisible = false;
 	
-	protected JMenu createMenu() {
-		JMenu menu = new ArrowMenu();
+	protected ArrowMenu createMenu() {
+		ArrowMenu menu = new ArrowMenu();
+		menu.setFocusable(true);
+		menu.setFocusPainted(true);
 		menu.setFont(getFont());
 		return menu;
 	}
 	
-	protected JMenu createRootMenu() {
-		JMenu menu = createMenu();
+	protected ArrowMenu createRootMenu() {
+		ArrowMenu menu = createMenu();
 		menu.setEnabled(false);
 		menu.setText(getDefaultRootText());
 		return menu;
+	}
+	
+	public void setFont(Font font) {
+		super.setFont(font);
+		if (menus != null) {
+			for (JMenu menu : menus) {
+				menu.setFont(font);
+			}
+		}
 	}
 	
 	protected Handler createHandler() {
@@ -137,13 +174,17 @@ public class TreeMenuBar extends CurlMenuBar {
 	}
 	
 	public void setPath(TreePath path) {
+		if (path != null && path.equals(this.path))
+			return;
 		this.path = path;
 		int menusSize = menus.size();
-		if (path != null && !isLeaf(path.getLastPathComponent()))
+		boolean leaf = path == null || isLeaf(path.getLastPathComponent());
+		setOverlap(leaf ? 20 : 35);
+		if (!leaf)
 			path = path.pathByAddingChild(" ");
 		int pathCount = path == null ? 1 : path.getPathCount();
 		int len = Math.min(menusSize, pathCount);
-		JMenu rootMenu = menus.get(0);
+		ArrowMenu rootMenu = menus.get(0);
 		if (path == null || (pathCount == 1 && !isRootVisible())) {
 			rootMenu.setVisible(true);
 			rootMenu.setText(getDefaultRootText());
@@ -156,15 +197,15 @@ public class TreeMenuBar extends CurlMenuBar {
 			menu.setText(path.getPathComponent(i).toString());
 		}
 		if (len < menusSize) {
-			List<JMenu> remove = menus.subList(len, menusSize);
-			for (JMenu menu : remove) {
+			List<ArrowMenu> remove = menus.subList(len, menusSize);
+			for (ArrowMenu menu : remove) {
 				remove(menu);
 				menu.removeMenuListener(handler);
 			}
 			remove.clear();
 		} else if (pathCount > menusSize) {
 			for (int i=menusSize; i<pathCount; i++) {
-				JMenu menu = createMenu();
+				ArrowMenu menu = createMenu();
 				menu.setText(path.getPathComponent(i).toString());
 				menu.addMenuListener(handler);
 				menus.add(menu);
@@ -203,10 +244,21 @@ public class TreeMenuBar extends CurlMenuBar {
 			mdl = model;
 		}
 		JTree tree = new JTree(mdl);
+		tree.getSelectionModel().setSelectionMode(
+				TreeSelectionModel.SINGLE_TREE_SELECTION);
 		tree.setRootVisible(false);
 		tree.setShowsRootHandles(true);
 		tree.addMouseListener(handler);
 		tree.addMouseMotionListener(handler);
+		tree.registerKeyboardAction(handler, ENTER,
+				KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0),
+				JComponent.WHEN_FOCUSED);
+		tree.registerKeyboardAction(handler, PREVIOUS_MENU,
+				KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, InputEvent.CTRL_DOWN_MASK),
+				JComponent.WHEN_FOCUSED);
+		tree.registerKeyboardAction(handler, NEXT_MENU,
+				KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, InputEvent.CTRL_DOWN_MASK),
+				JComponent.WHEN_FOCUSED);
 		return tree;
 	}
 
@@ -243,20 +295,21 @@ public class TreeMenuBar extends CurlMenuBar {
 		defaultSelection = node == null ? null : new TreePath(
 				new Object[]{p.getLastPathComponent(), node});
 		tree.setSelectionPath(defaultSelection);
-		if (node != null) {
 			SwingUtilities.invokeLater(new Runnable() {
 				public void run() {
-					Rectangle cell = tree.getPathBounds(defaultSelection);
-					Rectangle bounds = tree.getVisibleRect();
-					bounds.y = cell.y - (bounds.height-cell.height)/2;
-					if (bounds.y < 0)
-						bounds.y = 0;
-					if (bounds.y+bounds.height > tree.getHeight())
-						bounds.height = tree.getHeight()-bounds.y;
-					tree.scrollRectToVisible(bounds);
+					if (defaultSelection != null) {
+						Rectangle cell = tree.getPathBounds(defaultSelection);
+						Rectangle bounds = tree.getVisibleRect();
+						bounds.y = cell.y - (bounds.height-cell.height)/2;
+						if (bounds.y < 0)
+							bounds.y = 0;
+						if (bounds.y+bounds.height > tree.getHeight())
+							bounds.height = tree.getHeight()-bounds.y;
+						tree.scrollRectToVisible(bounds);
+					}
+					tree.requestFocus();
 				}
 			});
-		}
 	}
 	
 	protected void menuPathSelected(TreePath path) {
@@ -279,8 +332,42 @@ public class TreeMenuBar extends CurlMenuBar {
 		}
 	}
 	
-	protected class Handler extends MouseAdapter implements MenuListener, AdjustmentListener, TreeModelListener {
-
+	
+	protected class Handler extends MouseAdapter implements MenuListener, AdjustmentListener, TreeModelListener, ActionListener {
+		
+		private void selectMenu(int idx) {
+			JMenu menu = menus.get(idx);
+			if (menu.isVisible()) {
+				MenuSelectionManager.defaultManager().clearSelectedPath();
+				menu.requestFocusInWindow();
+				menu.doClick();
+			}
+		}
+		
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			if (e.getActionCommand() == ENTER) {
+				TreePath path = tree.getSelectionPath();
+				if (path != null) {
+					menuPathSelected(path);
+				}
+			} else if (e.getActionCommand() == PREVIOUS_MENU) {
+				int idx = menuRoot.getPathCount() - 1;
+				if (idx >= 0)
+					selectMenu(idx);
+			} else if (e.getActionCommand() == NEXT_MENU) {
+				int idx = menuRoot.getPathCount() + 1;
+				if (idx < menus.size())
+					selectMenu(idx);
+			} else {
+				Component foc = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+				if (foc instanceof JMenu) {
+					JMenu menu = (JMenu)foc;
+					menu.doClick();
+				}
+			}
+		}
+		
 		@Override
 		public void menuCanceled(MenuEvent e) {
 			menuHidden();
@@ -359,7 +446,7 @@ public class TreeMenuBar extends CurlMenuBar {
 		@Override
 		public void treeNodesRemoved(TreeModelEvent e) {
 			// TODO Auto-generated method stub
-			
+
 		}
 
 		@Override
@@ -388,9 +475,27 @@ public class TreeMenuBar extends CurlMenuBar {
 			arrow = new GeneralPath();
 			arrow.moveTo(-2, -3.5);
 			arrow.lineTo(-2, 3.5);
-			arrow.lineTo(2, 0);
+			arrow.lineTo(2.5, 0);
 			arrow.closePath();
 		}
+		
+		public ArrowMenu() {
+			enableEvents(AWTEvent.FOCUS_EVENT_MASK);
+		}
+		
+		@Override
+		protected void processFocusEvent(FocusEvent e) {
+			repaint();
+		}
+		
+//		private boolean focused;
+//		
+//		public void setFocused(boolean f) {
+//			if (focused != f) {
+//				focused = f;
+//				repaint();
+//			}
+//		}
 		
 		public Insets getInsets() {
 			Insets in = super.getInsets();
@@ -404,6 +509,16 @@ public class TreeMenuBar extends CurlMenuBar {
 			return insets;
 		}
 		
+		protected void paintFocus(Graphics2D g) {
+			java.awt.Color c = UIManager.getColor("nimbusFocus");
+			if (c == null)
+				c = UIManager.getColor("textHighlight");
+			g.setColor(c);
+			g.setStroke(new BasicStroke(4.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			g.draw(arrow);
+
+		}
+		
 		protected void paintComponent(Graphics g) {
 			super.paintComponent(g);
 			if (g instanceof Graphics2D) {
@@ -412,17 +527,22 @@ public class TreeMenuBar extends CurlMenuBar {
 				int x = in.left-5;
 				int y = getHeight()/2;
 				g2.translate(x, y);
-				g2.setColor(getForeground());
 				Object antialiasing = g2.getRenderingHint(RenderingHints.KEY_ANTIALIASING);
 				if (antialiasing != RenderingHints.VALUE_ANTIALIAS_ON)
 					g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 				Object stroke = g2.getRenderingHint(RenderingHints.KEY_STROKE_CONTROL);
 				if (stroke != RenderingHints.VALUE_STROKE_PURE)
 					g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+				if (isFocusOwner()) {
+					paintFocus(g2);
+				}
+				g2.setColor(UIManager.getColor("controlDkShadow"));
+				g2.setStroke(new BasicStroke(1.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+				g2.draw(arrow);
+				g2.setColor(isSelected() ? Color.WHITE : getForeground());
 				g2.fill(arrow);
 				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, antialiasing);
 				g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, stroke);
-				g2.translate(-x, -y);
 			}
 		}
 

@@ -1,9 +1,11 @@
 package aephyr.swing;
 
+import java.awt.EventQueue;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.AdjustmentEvent;
 import java.awt.event.AdjustmentListener;
+import java.awt.event.MouseWheelEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.HashSet;
@@ -39,6 +41,8 @@ public class DeferLoading implements AdjustmentListener, ActionListener, Propert
 	private Timer timer;
 	
 	private Set<Integer> loadingSet;
+	
+	private long startTime;
 	
 	private boolean managed = false;
 	
@@ -86,7 +90,7 @@ public class DeferLoading implements AdjustmentListener, ActionListener, Propert
 	
 	@Override
 	public void adjustmentValueChanged(AdjustmentEvent e) {
-		if (e.getValueIsAdjusting()) {
+		if (e.getValueIsAdjusting() || EventQueue.getCurrentEvent() instanceof MouseWheelEvent) {
 			restart();
 		} else if (timer != null && !managed) {
 			stop(true);
@@ -95,7 +99,12 @@ public class DeferLoading implements AdjustmentListener, ActionListener, Propert
 	
 	@Override
 	public void actionPerformed(ActionEvent e) {
-		loadVisibleIndices();
+		if (managed) {
+			stop(true);
+			managed = false;
+		} else {
+			loadVisibleIndices();
+		}
 	}
 	
 	private void loadVisibleIndices() {
@@ -138,4 +147,5 @@ public class DeferLoading implements AdjustmentListener, ActionListener, Propert
 				hsb.removeAdjustmentListener(this);
 		}
 	}
+
 }

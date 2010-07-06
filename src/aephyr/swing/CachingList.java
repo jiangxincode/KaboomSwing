@@ -8,6 +8,7 @@ import java.awt.event.AdjustmentEvent;
 import java.awt.event.AdjustmentListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseWheelEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.ArrayList;
@@ -54,6 +55,22 @@ public class CachingList extends JList implements Cachable {
 	private int loadingDelay = 300;
 	
 	private DeferLoading deferLoading;
+	
+	protected DeferLoading getDeferLoading() {
+		return deferLoading;
+	}
+	
+	public void setCustomLoading(boolean customLoading) {
+		getCachingModel().setCustomLoading(customLoading);
+	}
+	
+	public void setCachingEnabled(boolean enabled) {
+		getCachingModel().setCachingEnabled(enabled);
+	}
+	
+	public boolean isCachingEnabled() {
+		return getCachingModel().isCachingEnabled();
+	}
 	
 	/**
 	 * Determines the cache behavior.
@@ -187,7 +204,6 @@ public class CachingList extends JList implements Cachable {
 		clearCache();
 	}
 	
-
 	/**
 	 * Overridden to reset the range of caching before painting.
 	 * No actual custom painting is performed.
@@ -297,6 +313,16 @@ public class CachingList extends JList implements Cachable {
 		
 		private ListDataListener[] listeners;
 		
+		private boolean cachingEnabled = true;
+		
+		public void setCachingEnabled(boolean enabled) {
+			cachingEnabled = enabled;
+		}
+		
+		public boolean isCachingEnabled() {
+			return cachingEnabled;
+		}
+		
 		public Model getModel() {
 			return model;
 		}
@@ -342,9 +368,12 @@ public class CachingList extends JList implements Cachable {
 		
 		@Override
 		public Object getElementAt(int index) {
-			Object value = getCachedAt(index);
-			return value != null ? value :
-					model.getLoadingElementAt(index);
+			if (cachingEnabled) {
+				Object value = getCachedAt(index);
+				if (value != null)
+					return value;
+			}
+			return model.getLoadingElementAt(index);
 		}
 
 		@Override

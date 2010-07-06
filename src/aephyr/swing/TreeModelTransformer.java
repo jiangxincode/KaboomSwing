@@ -46,6 +46,8 @@ public class TreeModelTransformer<I> implements TreeModel {
 	
 	private TreePath filterStartPath;
 	
+	private int filterDepthLimit;
+	
 	private SortOrder sortOrder = SortOrder.UNSORTED;
 	
 	private Map<Object,Converter> converters;
@@ -299,6 +301,10 @@ public class TreeModelTransformer<I> implements TreeModel {
 	}
 	
 	public void setFilter(Filter filter, TreePath startingPath) {
+		setFilter(filter, null, -1);
+	}
+	
+	public void setFilter(Filter filter, TreePath startingPath, int depthLimit) {
 		if (filter == null && startingPath != null)
 			throw new IllegalArgumentException();
 		if (startingPath != null && startingPath.getPathCount() == 1)
@@ -307,6 +313,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 		TreePath oldStartPath = filterStartPath;
 		this.filter = filter;
 		filterStartPath = startingPath;
+		filterDepthLimit = depthLimit;
 		applyFilter(oldFilter, oldStartPath, true);
 	}
 	
@@ -326,11 +333,11 @@ public class TreeModelTransformer<I> implements TreeModel {
 			converters = null;
 		} else {
 			if (converters == null || startingPath == null) {
-				converters = createConvertersMap(); //new IdentityHashMap<Object,Converter>();
+				converters = createConvertersMap();
 			} else if (oldFilter != null) {
 				// unfilter the oldStartPath if oldStartPath isn't descendant of startingPath
 				if (oldStartPath == null) {
-					converters = createConvertersMap(); //new IdentityHashMap<Object,Converter>();
+					converters = createConvertersMap();
 					fireTreeStructureChangedAndExpand(new TreePath(getRoot()), null);
 				} else if (!startingPath.isDescendant(oldStartPath)) {
 					Object node = oldStartPath.getLastPathComponent();
@@ -340,7 +347,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 			}
 			expand = new ArrayList<TreePath>();
 			TreePath path = startingPath != null ? startingPath : new TreePath(getRoot());
-			if (!applyFilter(filter, path, expand)) {
+			if (!applyFilter(filter, path, expand, filterDepthLimit)) {
 				converters.put(path.getLastPathComponent(), new Converter(Converter.EMPTY, true));
 			}
 		}
@@ -350,7 +357,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 		expandPaths(expand);
 		if (sort && sortOrder != SortOrder.UNSORTED) {
 			if (filter == null)
-				converters = createConvertersMap(); //new IdentityHashMap<Object,Converter>();
+				converters = createConvertersMap();
 			if (startingPath.getPathCount() > 1 && oldFilter != null) {
 				// upgrade startingPath or sort oldStartPath
 				if (oldStartPath == null) {
@@ -371,12 +378,24 @@ public class TreeModelTransformer<I> implements TreeModel {
 	}
 	
 	private boolean applyFilter(Filter filter, TreePath path, ArrayList<TreePath> expand) {
+		int depthLimit = filterDepthLimit;
+		if (depthLimit >= 0) {
+			depthLimit -= filterStartPath.getPathCount() - path.getPathCount();
+			if (depthLimit <= 0)
+				return false;
+		}
+		return applyFilter(filter, path, expand, depthLimit);
+	}
+	
+	private boolean applyFilter(Filter filter, TreePath path, ArrayList<TreePath> expand, int depthLimit) {
 		Object node = path.getLastPathComponent();
 		int count = model.getChildCount(node);
 		int[] viewToModel = null;
 		int viewIndex = 0;
 		boolean needsExpand = false;
 		boolean isExpanded = false;
+		if (depthLimit > 0)
+			depthLimit--;
 		for (int i=0; i<count; i++) {
 			Object child = model.getChild(node, i);
 			boolean leaf = model.isLeaf(child);
@@ -385,8 +404,8 @@ public class TreeModelTransformer<I> implements TreeModel {
 					viewToModel = new int[count-i];
 				viewToModel[viewIndex++] = i;
 				needsExpand = true;
-			} else if (!leaf) {
-				if (applyFilter(filter, path.pathByAddingChild(child), expand)) {
+			} else if (depthLimit != 0 && !leaf) {
+				if (applyFilter(filter, path.pathByAddingChild(child), expand, depthLimit)) {
 					if (viewToModel == null)
 						viewToModel = new int[count-i];
 					viewToModel[viewIndex++] = i;
@@ -998,6 +1017,8 @@ public class TreeModelTransformer<I> implements TreeModel {
 			return isFiltered;
 		}
 		
+		
+		
 		/**
 		 * @param modelIndex
 		 * @return viewIndex that was removed<br>
@@ -1031,6 +1052,7 @@ public class TreeModelTransformer<I> implements TreeModel {
 			}
 			return INDEX_NOT_FOUND;
 		}
+		
 		
 		int getChildCount() {
 			return viewToModel.length;

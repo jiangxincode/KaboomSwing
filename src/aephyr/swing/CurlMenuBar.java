@@ -12,6 +12,7 @@ import java.awt.geom.GeneralPath;
 import javax.swing.BorderFactory;
 import javax.swing.JMenuBar;
 import javax.swing.UIManager;
+import javax.swing.plaf.ColorUIResource;
 import javax.swing.plaf.UIResource;
 
 public class CurlMenuBar extends JMenuBar {
@@ -29,6 +30,8 @@ public class CurlMenuBar extends JMenuBar {
 	private int curlWidth = DEFAULT_CURL_WIDTH;
 	
 	private Color borderColor;
+	
+	private int overlap =  15;
 	
 	public void setCurlWidth(int width) {
 		curlWidth = width;
@@ -62,6 +65,14 @@ public class CurlMenuBar extends JMenuBar {
 		return borderColor;
 	}
 	
+	public void setOverlap(int overlap) {
+		this.overlap = overlap;
+	}
+	
+	public int getOverlap() {
+		return overlap;
+	}
+	
 	@Override
 	public Insets getInsets() {
 		Insets i = super.getInsets();
@@ -87,7 +98,7 @@ public class CurlMenuBar extends JMenuBar {
 			if (borderColor == null) {
 				borderColor = UIManager.getColor("MenuBar.borderColor");
 				if (borderColor == null)
-					borderColor = Color.GRAY;
+					borderColor = new ColorUIResource(Color.GRAY);
 			}
 		}
 	}
@@ -96,8 +107,13 @@ public class CurlMenuBar extends JMenuBar {
 	public Dimension getPreferredSize() {
 		Dimension size = super.getPreferredSize();
 		if (isCurlVisible())
-			size.width += curlWidth-15;
+			size.width += curlWidth-overlap;
 		return size;
+	}
+	
+	@Override
+	public Dimension getMinimumSize() {
+		return getPreferredSize();
 	}
 	
 	@Override

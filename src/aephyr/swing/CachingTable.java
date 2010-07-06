@@ -49,8 +49,14 @@ public class CachingTable extends JTable implements Cachable {
 
 	
 	public CachingTable(Model model) {
+		this(model, true);
+	}
+	
+	public CachingTable(Model model, boolean cachingEnabled) {
 		super(model);
-		cachingModel = createCachingModel(model);
+		this.cachingEnabled = cachingEnabled;
+		if (cachingEnabled)
+			cachingModel = createCachingModel(model);
 	}
 	
 	private ModelAdapter cachingModel;
@@ -61,8 +67,30 @@ public class CachingTable extends JTable implements Cachable {
 	
 	private DeferLoading deferLoading;
 	
+	private boolean cachingEnabled = true;
+	
 	protected ModelAdapter createCachingModel(Model model) {
 		return new ModelAdapter(model);
+	}
+	
+	public void setCachingEnabled(boolean enabled) {
+		if (cachingEnabled != enabled) {
+			cachingEnabled = enabled;
+			if (enabled) {
+				cachingModel = new ModelAdapter((Model)getModel());
+				validateDeferLoading();
+			} else {
+				if (deferLoading != null) {
+					deferLoading.dispose();
+					deferLoading = null;
+				}
+				cachingModel = null;
+			}
+		}
+	}
+	
+	public boolean isCachingEnabled() {
+		return cachingEnabled;
 	}
 	
 	/**
@@ -108,16 +136,22 @@ public class CachingTable extends JTable implements Cachable {
 		if (loadingDelay < 0)
 			throw new IllegalArgumentException();
 		this.loadingDelay = loadingDelay;
-		if (loadingDelay == 0) {
-			if (deferLoading != null) {
-				deferLoading.dispose();
-				deferLoading = null;
-			}
-		} else {
-			if (deferLoading != null) {
-				deferLoading.setLoadingDelay(loadingDelay);
-			} else if (isDisplayable()) {
-				initializeDeferLoading();
+		validateDeferLoading();
+	}
+	
+	private void validateDeferLoading() {
+		if (cachingEnabled) {
+			if (loadingDelay == 0) {
+				if (deferLoading != null) {
+					deferLoading.dispose();
+					deferLoading = null;
+				}
+			} else {
+				if (deferLoading != null) {
+					deferLoading.setLoadingDelay(loadingDelay);
+				} else if (isDisplayable()) {
+					initializeDeferLoading();
+				}
 			}
 		}
 	}
@@ -137,7 +171,8 @@ public class CachingTable extends JTable implements Cachable {
 	 * but not when it is hidden.
 	 */
 	public void clearCache() {
-		getCachingModel().clearCache();
+		if (cachingEnabled)
+			getCachingModel().clearCache();
 	}
 
 	/**
@@ -154,8 +189,6 @@ public class CachingTable extends JTable implements Cachable {
 	
 	public void setModel(Model model) {
 		super.setModel(model);
-		// cachingModel won't be initialized when this method is
-		// called in the super constructor
 		if (cachingModel != null)
 			cachingModel.setModel(model);
 	}
@@ -187,7 +220,7 @@ public class CachingTable extends JTable implements Cachable {
 	@Override
 	public void addNotify() {
 		super.addNotify();
-		if (loadingDelay > 0)
+		if (cachingEnabled && loadingDelay > 0)
 			initializeDeferLoading();
 	}
 	
@@ -217,27 +250,29 @@ public class CachingTable extends JTable implements Cachable {
 	 */
 	@Override
 	protected void paintComponent(Graphics g) {
-		int offset;
-		int length = getModel().getRowCount();
-		if (Float.isInfinite(cacheThreshold)) {
-			offset = 0;
-		} else {
-			Rectangle visible = getVisibleRect();
-			int firstIndex = getFirstVisibleRow(visible);
-			int lastIndex = getLastVisibleRow(visible);
-			int range = lastIndex - firstIndex + 1;
-			range = Math.round(range * cacheThreshold);
-			firstIndex -= range;
-			lastIndex += range;
-			range = lastIndex - firstIndex + 1;
-			if (range < length) {
-				offset = firstIndex;
-				length = range;
-			} else {
+		if (cachingEnabled) {
+			int offset;
+			int length = getModel().getRowCount();
+			if (Float.isInfinite(cacheThreshold)) {
 				offset = 0;
+			} else {
+				Rectangle visible = getVisibleRect();
+				int firstIndex = getFirstVisibleRow(visible);
+				int lastIndex = getLastVisibleRow(visible);
+				int range = lastIndex - firstIndex + 1;
+				range = Math.round(range * cacheThreshold);
+				firstIndex -= range;
+				lastIndex += range;
+				range = lastIndex - firstIndex + 1;
+				if (range < length) {
+					offset = firstIndex;
+					length = range;
+				} else {
+					offset = 0;
+				}
 			}
+			getCachingModel().setCacheRange(offset, length);
 		}
-		getCachingModel().setCacheRange(offset, length);
 		super.paintComponent(g);
 	}
 	
@@ -281,25 +316,57 @@ public class CachingTable extends JTable implements Cachable {
 	
 	@Override
 	public void sorterChanged(RowSorterEvent e) {
-		if (e.getType() == RowSorterEvent.Type.SORTED)
-			getCachingModel().clearCache();
+		if (e.getType() == RowSorterEvent.Type.SORTED) {
+			ModelAdapter adapter = getCachingModel();
+			if (adapter != null)
+				adapter.updateCache(e);
+		}
 		super.sorterChanged(e);
 	}
 	
 	@Override
 	public void tableChanged(TableModelEvent e) {
-		if (e.getLastRow() == Integer.MAX_VALUE) {
-			getCachingModel().clearCache();
-		} else if (e.getFirstRow() != TableModelEvent.HEADER_ROW) {
-			getCachingModel().updateCache(e);
+		if (cachingEnabled) {
+			if (e.getLastRow() == Integer.MAX_VALUE) {
+				getCachingModel().clearCache();
+			} else if (e.getFirstRow() != TableModelEvent.HEADER_ROW) {
+				getCachingModel().updateCache(e);
+			}
 		}
 		super.tableChanged(e);
 	}
 	
 	@Override
 	public Object getValueAt(int row, int column) {
-		return getCachingModel().getValueAt(
-				row, convertColumnIndexToModel(column));
+		return cachingEnabled ?
+			getCachingModel().getValueAt(
+				row, convertColumnIndexToModel(column)) :
+			super.getValueAt(row, column);
+	}
+	
+	public void addCacheListener(CacheListener lis) {
+		listenerList.add(CacheListener.class, lis);
+	}
+	
+	public void removeCacheListener(CacheListener lis) {
+		listenerList.remove(CacheListener.class, lis);
+	}
+	
+	protected void fireCacheUpdate(int row) {
+		Object[] listeners = listenerList.getListenerList();
+		CacheEvent e = null;
+		for (int i = listeners.length-2; i>=0; i-=2) {
+			if (listeners[i]==CacheListener.class) {
+				if (e == null)
+					e = new CacheEvent(this, row);
+				cachingEnabled = false;
+				try {
+					((CacheListener)listeners[i+1]).cacheUpdated(e);
+				} finally {
+					cachingEnabled = true;
+				}
+			}
+		}
 	}
 	
 	protected class ModelAdapter extends CachingModel {
@@ -338,10 +405,17 @@ public class CachingTable extends JTable implements Cachable {
 
 		@Override
 		protected void fireUpdate(int row) {
-			Rectangle r = getCellRect(row, 0, true);
-			r.x = 0;
-			r.width = getWidth();
-			repaint(r);
+			int modelRow = convertRowIndexToModel(row);
+			fireCacheUpdate(row);
+			row = convertRowIndexToView(modelRow);
+			if (row < 0) {
+				resizeAndRepaint();
+			} else {
+				Rectangle r = getCellRect(row, 0, true);
+				r.x = 0;
+				r.width = getWidth();
+				repaint(r);
+			}
 		}
 		
 		public Object getValueAt(int viewRow, int modelColumn) {
@@ -390,20 +464,44 @@ public class CachingTable extends JTable implements Cachable {
 			}
 		}
 		
+		void updateCache(RowSorterEvent e) {
+			Object[] cached = getCachedValues(new Object[getRowCount()]);
+			Object[] vals = new Object[cached.length];
+			RowSorter<?> sorter = e.getSource();
+			if (e.getPreviousRowCount() == 0) {
+				for (int row=vals.length; --row>=0;) {
+					int view = sorter.convertRowIndexToView(row);
+					if (view >= 0)
+						vals[view] = cached[row];
+				}
+			} else {
+				for (int row=vals.length; --row>=0;) {
+					int mdl = e.convertPreviousRowIndexToModel(row);
+					if (mdl < 0)
+						continue;
+					int view = sorter.convertRowIndexToView(mdl);
+					if (view >= 0)
+						vals[view] = cached[row];
+				}
+			}
+			setCachedValues(vals, 0);
+		}
+		
 	}
 	
 	// unrelated to caching
 	
 	private boolean paintsFocus = true;
 	
-	public void setPaintsFocus(boolean paintsFocus) {
+	public void setFocusPainted(boolean paintsFocus) {
 		if (paintsFocus != this.paintsFocus) {
 			this.paintsFocus = paintsFocus;
-			repaint();
+			if (isFocusOwner())
+				repaint();
 		}
 	}
 	
-	public boolean getPaintsFocus() {
+	public boolean isFocusPainted() {
 		return paintsFocus;
 	}
 	
