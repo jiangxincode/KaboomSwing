@@ -1,6 +1,7 @@
 package aephyr.swing;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
@@ -29,11 +30,11 @@ abstract class CachingModel implements Runnable {
 		
 		@Override
 		protected void done() {
-			if (values == null)
+			if (values == null || isCancelled())
 				return;
 			int idx = index-offset;
 			if (idx < 0 || idx >= values.length || values[idx] != this) {
-				idx = Arrays.asList(values).indexOf(this);
+				idx = indexOf(this);
 				if (idx < 0) {
 					System.out.println("loader not found: " + index);
 					return;
@@ -45,7 +46,6 @@ abstract class CachingModel implements Runnable {
 			} catch (Exception e) {
 				value = getErrorAt(idx+offset, e);
 			}
-//			System.out.println("set: " + index + " " + idx + " " + value);
 			values[idx] = value;
 			fireUpdate(idx+offset);
 		}
@@ -95,10 +95,6 @@ abstract class CachingModel implements Runnable {
 				int dstPos = offset-newOffset;
 				if (dstPos < values.length) {
 					insertRange(0, dstPos, false);
-//					int len = values.length-dstPos;
-//					clear(values, len, values.length);
-//					System.arraycopy(values, 0, values, dstPos, len);
-//					Arrays.fill(values, 0, dstPos, null);
 				} else {
 					clear(values, 0, values.length);
 				}
@@ -106,9 +102,6 @@ abstract class CachingModel implements Runnable {
 				int srcPos = newOffset - offset;
 				if (srcPos < values.length) {
 					removeRange(0, srcPos, false);
-//					clear(values, 0, srcPos);
-//					System.arraycopy(values, srcPos, values, 0, values.length-srcPos);
-//					Arrays.fill(values, values.length-srcPos, values.length, null);
 				} else {
 					clear(values, 0, values.length);
 				}
@@ -177,8 +170,11 @@ abstract class CachingModel implements Runnable {
 			firstIndex -= offset;
 			lastIndex -= offset;
 			if (lastIndex >= 0 && firstIndex < values.length) {
-				if (firstIndex < 0)
+				if (firstIndex < 0) {
+					if (type == DELETE)
+						offset += firstIndex;
 					firstIndex = 0;
+				}
 				if (++lastIndex > values.length)
 					lastIndex = values.length;
 				switch (type) {
@@ -196,23 +192,35 @@ abstract class CachingModel implements Runnable {
 		}
 	}
 	
-	private void remap(Integer key, int interval) {
+	private void remap(Integer key) {
 		key = loaders.ceilingKey(key);
 		if (key != null) {
 			Loader loader = loaders.remove(key);
-			remap(key, interval);
-			loader.index += interval;
-			loaders.put(loader.index, loader);
+			remap(key);
+			int idx = indexOf(loader);
+			if (idx >= 0) {
+				loader.index = offset + idx;
+				loaders.put(loader.index, loader);
+			}
 		}
 	}
+	
+	private int indexOf(Object obj) {
+		Object[] v = values;
+		for (int i=v.length; --i>=0;)
+			if (v[i] == obj)
+				return i;
+		return -1;
+	}
+	
 	
 	private void removeRange(int firstIndex, int lastIndex, boolean shiftLoaderIndices) {
 		clear(values, firstIndex, lastIndex);
 		System.arraycopy(values, lastIndex, values, firstIndex, values.length-lastIndex);
 		Arrays.fill(values, firstIndex+values.length-lastIndex, values.length, null);
-		if (shiftLoaderIndices && loaders != null) {
+		if (shiftLoaderIndices && loaders != null && !loaders.isEmpty()) {
 			synchronized (this) {
-				remap(firstIndex, firstIndex-lastIndex);
+				remap(firstIndex-1);
 			}
 		}
 	}
@@ -222,9 +230,9 @@ abstract class CachingModel implements Runnable {
 		clear(values, firstIndex+len, values.length);
 		System.arraycopy(values, firstIndex, values, lastIndex, len);
 		Arrays.fill(values, firstIndex, lastIndex, null);
-		if (shiftLoaderIndices && loaders != null) {
+		if (shiftLoaderIndices && loaders != null && !loaders.isEmpty()) {
 			synchronized (this) {
-				remap(firstIndex, lastIndex-firstIndex);
+				remap(firstIndex-1);
 			}
 		}
 	}
