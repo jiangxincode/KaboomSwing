@@ -2,9 +2,12 @@ package aephyr.swing.nimbus;
 
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.util.EventObject;
@@ -12,26 +15,29 @@ import java.util.EventObject;
 import javax.swing.AbstractCellEditor;
 import javax.swing.GroupLayout;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 import javax.swing.GroupLayout.Alignment;
+import javax.swing.event.AncestorEvent;
+import javax.swing.event.AncestorListener;
 import javax.swing.table.TableCellEditor;
 
 
-class UIDefaultsEditor extends AbstractCellEditor
-	implements TableCellEditor, ActionListener, MouseListener {
+class UIDefaultsEditor extends AbstractCellEditor implements Runnable, 
+		TableCellEditor, ActionListener {
 	
 	private static final String OK = "OK";
+	
 	private static final String CANCEL = "Cancel";
 	
 	public UIDefaultsEditor() {
 		renderer = new UIDefaultsRenderer();
-		renderer.addMouseListener(this);
 		popup = new JPopupMenu();
 		popup.setLayout(new BorderLayout());
-		JButton ok = new JButton(OK);
+		ok = new JButton(OK);
 		ok.addActionListener(this);
 		JButton cancel = new JButton(CANCEL);
 		cancel.addActionListener(this);
@@ -45,13 +51,16 @@ class UIDefaultsEditor extends AbstractCellEditor
 		layout.setVerticalGroup(layout.createBaselineGroup(false, true)
 				.addComponent(ok).addComponent(cancel));
 		layout.linkSize(SwingUtilities.HORIZONTAL, ok, cancel);
-		
 		popup.add(buttons, BorderLayout.SOUTH);
 	}
 	
 	private UIDefaultsRenderer renderer;
+	
 	private JPopupMenu popup;
+	
 	private ValueChooser currentChooser;
+	
+	private JButton ok;
 	
 	@Override
 	public Object getCellEditorValue() {
@@ -61,6 +70,7 @@ class UIDefaultsEditor extends AbstractCellEditor
 	@Override
 	public Component getTableCellEditorComponent(JTable table,
 			Object value, boolean isSelected, int row, int column) {
+		SwingUtilities.invokeLater(this);
 		return renderer.getTableCellRendererComponent(table, value, true, false, row, column);
 	}
 	
@@ -72,7 +82,7 @@ class UIDefaultsEditor extends AbstractCellEditor
 					InputEvent.ALT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK |
 					InputEvent.META_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK)) == 0;
 		}
-		return super.isCellEditable(e);
+		return true;
 	}
 
 	@Override
@@ -92,19 +102,12 @@ class UIDefaultsEditor extends AbstractCellEditor
 	}
 	
 	@Override
-	public void mouseClicked(MouseEvent e) {}
+	public void run() {
+		if (renderer.isShowing())
+			showPopup();
+	}
 
-	@Override
-	public void mouseEntered(MouseEvent e) {}
-
-	@Override
-	public void mouseExited(MouseEvent e) {}
-
-	@Override
-	public void mousePressed(MouseEvent e) {}
-	
-	@Override
-	public void mouseReleased(MouseEvent evt) {
+	private void showPopup() {
 		currentChooser = renderer.type.getValueChooser();
 		if (currentChooser == null)
 			return;
@@ -117,6 +120,28 @@ class UIDefaultsEditor extends AbstractCellEditor
 			popup.add(currentChooser.getComponent(), BorderLayout.CENTER);
 		}
 		popup.show(renderer, renderer.getWidth(), 0);
+		ok.getRootPane().setDefaultButton(ok);
+		Component foc;
+		synchronized (currentChooser.getComponent().getTreeLock()) {
+			foc = getFocusableComponent(currentChooser.getComponent());
+		}
+		if (foc == null)
+			foc = ok;
+		foc.requestFocus();
+	}
+	
+	private static Component getFocusableComponent(Container p) {
+		for (int i=0, j=p.getComponentCount(); i<j; i++) {
+			Component c = p.getComponent(i);
+			if (c.isFocusable()) {
+				return c;
+			} else if (c instanceof Container) {
+				c = getFocusableComponent((Container)c);
+				if (c != null)
+					return c;
+			}
+		}
+		return null;
 	}
 
 }

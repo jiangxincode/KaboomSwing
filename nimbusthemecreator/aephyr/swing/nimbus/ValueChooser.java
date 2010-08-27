@@ -44,11 +44,11 @@ import javax.swing.table.TableColumn;
 abstract class ValueChooser {
 
 	abstract JComponent getComponent();
+	
 	abstract void setValue(Object value);
+	
 	abstract Object getValue();
 	
-	
-
 	static class BooleanChooser extends ValueChooser {
 
 		BooleanChooser() {
@@ -76,7 +76,7 @@ abstract class ValueChooser {
 		private JComponent pane;
 		private JRadioButton tru;
 		private JRadioButton fal;
-
+		
 		@Override
 		JComponent getComponent() {
 			return pane;
@@ -158,7 +158,9 @@ abstract class ValueChooser {
 			chooser = new NumberChooser(null, -10, 100);
 			pane = NumberChooser.createComponent(null, -1, -1, -1, -1, chooser);
 		}
+		
 		private JComponent pane;
+		
 		private NumberChooser chooser;
 
 		@Override
@@ -191,10 +193,13 @@ abstract class ValueChooser {
 		}
 		
 		private JComponent pane;
-		private NumberChooser width;
-		private NumberChooser height;
-		private UIDefaultsRenderer renderer;
 
+		private NumberChooser width;
+		
+		private NumberChooser height;
+		
+		private UIDefaultsRenderer renderer;
+		
 		@Override
 		JComponent getComponent() {
 			return pane;
@@ -300,8 +305,14 @@ abstract class ValueChooser {
 		}
 		
 		private String name;
+		
 		private SpinnerNumberModel spin;
+		
 		private JSlider slide;
+		
+		JComponent getDefaultFocusComponent() {
+			return slide;
+		}
 		
 		@Override
 		public void stateChanged(ChangeEvent e) {
@@ -402,6 +413,7 @@ abstract class ValueChooser {
 							.addComponent(bold).addComponent(italic))
 					.addComponent(renderer, 50, 50, 50));
 		}
+		
 		private JComponent pane;
 		private SpinnerListModel family;
 		private SpinnerNumberModel size;

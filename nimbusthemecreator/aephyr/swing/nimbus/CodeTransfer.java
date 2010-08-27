@@ -1,23 +1,22 @@
 package aephyr.swing.nimbus;
 
-import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.StringWriter;
 import java.io.Writer;
 import java.net.URI;
 import java.rmi.RemoteException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,16 +42,13 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.LayoutStyle;
 import javax.swing.SwingConstants;
-import javax.swing.UIDefaults;
 import javax.swing.UIManager;
 import javax.swing.GroupLayout.Alignment;
 import javax.swing.border.TitledBorder;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
-import javax.tools.JavaCompiler;
+import javax.swing.plaf.FontUIResource;
 import javax.tools.SimpleJavaFileObject;
-import javax.tools.ToolProvider;
-import javax.tools.JavaCompiler.CompilationTask;
 
 
 class CodeTransfer implements ActionListener, ChangeListener {
@@ -102,8 +98,8 @@ class CodeTransfer implements ActionListener, ChangeListener {
 		isExport = false;
 		location.setText(null);
 		locationBorder.setTitle(LOCATION_IMPORT);
-		tabs.setTitleAt(FILE_TAB, TAB_FILE_IMPORT);
-		tabs.setTitleAt(TEXT_TAB, TAB_TEXT_IMPORT);
+		setTitle(FILE_TAB, TAB_FILE_IMPORT);
+		setTitle(TEXT_TAB, TAB_TEXT_IMPORT);
 		tabs.setSelectedIndex(FILE_TAB);
 		options.setVisible(false);
 		text.setEditable(true);
@@ -117,8 +113,8 @@ class CodeTransfer implements ActionListener, ChangeListener {
 		isExport = true;
 		location.setText(null);
 		locationBorder.setTitle(LOCATION_EXPORT);
-		tabs.setTitleAt(FILE_TAB, TAB_FILE_EXPORT);
-		tabs.setTitleAt(TEXT_TAB, TAB_TEXT_EXPORT);
+		setTitle(FILE_TAB, TAB_FILE_EXPORT);
+		setTitle(TEXT_TAB, TAB_TEXT_EXPORT);
 		tabs.setSelectedIndex(FILE_TAB);
 		options.setVisible(true);
 		text.setEditable(false);
@@ -126,6 +122,20 @@ class CodeTransfer implements ActionListener, ChangeListener {
 		dialog.setTitle(DIALOG_EXPORT);
 		ok.getRootPane().setDefaultButton(ok);
 		dialog.setVisible(true);
+	}
+	
+	private void setTitle(int tab, String title) {
+		int mnemonic = tabs.getMnemonicAt(tab);
+		tabs.setTitleAt(tab, title);
+		int index = title.indexOf(mnemonic);
+		if (index >= 0)
+			tabs.setDisplayedMnemonicIndexAt(tab, index);
+	}
+	
+
+	private void setMnemonic(JLabel lab, JComponent c, int mnemonic) {
+		lab.setDisplayedMnemonic(mnemonic);
+		lab.setLabelFor(c);
 	}
 	
 	private void maybeInitializeDialog(JFrame frame) {
@@ -139,14 +149,20 @@ class CodeTransfer implements ActionListener, ChangeListener {
 		classField = new JTextField("NimbusTheme");
 		methodField = new JTextField("loadTheme");
 		indentTabs = new JRadioButton("Tabs", true);
+		indentTabs.setMnemonic(KeyEvent.VK_T);
 		indentJava = new JRadioButton("Java Convention", false);
+		indentJava.setMnemonic(KeyEvent.VK_J);
+		setMnemonic(pkgLabel, packageField, KeyEvent.VK_P);
+		setMnemonic(clsLabel, classField, KeyEvent.VK_C);
+		setMnemonic(mtdLabel, methodField, KeyEvent.VK_M);
 		ButtonGroup group = new ButtonGroup();
 		group.add(indentTabs);
 		group.add(indentJava);
 		location = new JTextField(25);
 		JButton browse = new JButton("Browse...");
 		browse.addActionListener(this);
-		
+		browse.setMnemonic(KeyEvent.VK_B);
+
 		options = Preview.titled(new JPanel(null), "Options");
 		GroupLayout layout = new GroupLayout(options);
 		options.setLayout(layout);
@@ -171,7 +187,7 @@ class CodeTransfer implements ActionListener, ChangeListener {
 				.addComponent(indLabel).addComponent(indentTabs).addComponent(indentJava)));
 		
 		JPanel locationPanel = new JPanel(null);
-		locationBorder = new TitledBorder(LOCATION_EXPORT);
+		locationBorder = Preview.createTitledBorder(false, LOCATION_EXPORT);
 		locationPanel.setBorder(locationBorder);
 		layout = new GroupLayout(locationPanel);
 		locationPanel.setLayout(layout);
@@ -199,6 +215,8 @@ class CodeTransfer implements ActionListener, ChangeListener {
 		tabs.addTab(TAB_TEXT_EXPORT, new JScrollPane(text,
 				JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, 
 				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED));
+		tabs.setMnemonicAt(FILE_TAB, KeyEvent.VK_F);
+		tabs.setMnemonicAt(TEXT_TAB, KeyEvent.VK_T);
 		
 		ok = new JButton("OK");
 		ok.addActionListener(this);
@@ -207,6 +225,7 @@ class CodeTransfer implements ActionListener, ChangeListener {
 		
 		JPanel content = new JPanel(null);
 		layout = new GroupLayout(content);
+		layout.setAutoCreateContainerGaps(true);
 		content.setLayout(layout);
 		layout.setHorizontalGroup(layout.createParallelGroup()
 			.addComponent(tabs).addGroup(layout.createSequentialGroup()
@@ -218,6 +237,7 @@ class CodeTransfer implements ActionListener, ChangeListener {
 				.addComponent(ok).addComponent(cancel))
 			.addGap(5));
 		layout.linkSize(SwingConstants.HORIZONTAL, ok, cancel);
+		Creator.registerCloseAction(content);
 		
 		dialog = new JDialog(frame, true);
 		dialog.setContentPane(content);
@@ -476,7 +496,7 @@ class CodeTransfer implements ActionListener, ChangeListener {
 					}
 					continue;
 				} catch (Exception x) {
-					//x.printStackTrace(System.out);
+					x.printStackTrace(System.out);
 					// any exceptions (e.g NumberFormatException or the jungle of exceptions thrown by newInstance)
 					// should be caught and the statement added to the error list
 					// also, plain Exceptions are thrown above if a statement isn't recognized
@@ -578,7 +598,7 @@ class CodeTransfer implements ActionListener, ChangeListener {
 			writer.newLine();
 			prefix = tabs ? "\t\t" : "\t";
 		}
-		doExport(writer, null);
+		doExport(writer, prefix);
 		if (cls != null) {
 			writer.write(tabs ? "\t" : "    ");
 			writer.write('}');
@@ -630,7 +650,7 @@ class CodeTransfer implements ActionListener, ChangeListener {
 					break;
 				case Font:
 					Font font = (Font)value;
-//				writer.write("\", new FontUIResource(\"");
+					//writer.write("\", new FontUIResource(\"");
 					writer.write("\", new Font(\"");
 					writer.write(font.getFamily());
 					writer.write("\", ");
@@ -640,7 +660,7 @@ class CodeTransfer implements ActionListener, ChangeListener {
 									: "Font.PLAIN";
 					writer.write(style);
 					writer.write(", ");
-					writer.write(font.getSize());
+					writer.write(Integer.toString(font.getSize()));
 					writer.write("));");
 					break;
 				case Boolean:

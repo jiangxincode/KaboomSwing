@@ -1,7 +1,7 @@
 package aephyr.swing.nimbus;
 
-import java.awt.Color;
 import java.awt.Component;
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FontMetrics;
@@ -15,8 +15,9 @@ import javax.swing.JComponent;
 import javax.swing.JTable;
 import javax.swing.UIManager;
 import javax.swing.table.TableCellRenderer;
-//import javax.swing.Painter; // 1.7
-import com.sun.java.swing.Painter; // 1.6
+
+import javax.swing.Painter; // 1.7
+//import com.sun.java.swing.Painter; // 1.6
 
 
 class UIDefaultsRenderer extends JComponent implements TableCellRenderer {

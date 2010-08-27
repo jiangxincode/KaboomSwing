@@ -1,10 +1,9 @@
 package aephyr.swing.nimbus;
 
-import java.awt.Color;
 import java.io.File;
+import java.awt.Color;
 import java.io.IOException;
 import java.io.Serializable;
-import java.rmi.NotBoundException;
 import java.rmi.Remote;
 import java.rmi.RemoteException;
 

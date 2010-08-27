@@ -9,20 +9,19 @@ import java.awt.LayoutManager;
 import java.awt.Point;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintStream;
-import java.io.Serializable;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
@@ -36,6 +35,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import javax.swing.AbstractAction;
+import javax.swing.Action;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.DefaultRowSorter;
@@ -45,15 +46,14 @@ import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JViewport;
+import javax.swing.KeyStroke;
 import javax.swing.RowFilter;
 import javax.swing.SwingUtilities;
-import javax.swing.UIDefaults;
 import javax.swing.UIManager;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
@@ -199,14 +199,12 @@ public class Creator extends WindowAdapter implements ActionListener, ChangeList
 			}
 		}
 
-		primaryTable = Creator.createUITable(false, 0, Type.Color, primary);
+		Actions editAction = new Actions(Actions.EDIT);
+		primaryTable = Creator.createUITable(false, 0, Type.Color, primary, editAction);
 		primaryTable.getModel().addTableModelListener(this);
-		secondaryTable = Creator.createUITable(false, 0, Type.Color, secondary);
+		secondaryTable = Creator.createUITable(false, 0, Type.Color, secondary, editAction);
 		secondaryTable.getModel().addTableModelListener(this);
-		otherTable = Creator.createUITable(true, 75, null, other);
-		otherTable.setAutoCreateRowSorter(true);
-		DefaultRowSorter<?,?> sorter = (DefaultRowSorter<?,?>)otherTable.getRowSorter();
-		sorter.setSortable(2, false);
+		otherTable = Creator.createUITable(true, 75, null, other, editAction);
 
 		String[] filterArray = filters.toArray(new String[filters.size()+1]);
 		filterArray[filterArray.length-1] = "";
@@ -215,8 +213,17 @@ public class Creator extends WindowAdapter implements ActionListener, ChangeList
 		keyFilter.setToolTipText("Filter Key Column");
 		keyFilter.setEditable(true);
 		keyFilter.addActionListener(this);
-		keyFilterMethod = new JComboBox(
-				new Object[]{"Starts With","Ends With","Contains","Regex"});
+		String[] methods = {STARTS_WITH, ENDS_WITH, CONTAINS, REGEX};
+		keyFilterMethod = new JComboBox(methods);
+		for (String method : methods) {
+			int idx = method.indexOf('\u0332');
+			if (idx > 0) {
+				Actions act = new Actions(Actions.MNEMONIC);
+				act.putValue(Actions.MNEMONIC, method);
+				int mnemonic = (int)Character.toUpperCase(method.charAt(idx-1));
+				act.registerMnemonic(keyFilterMethod, mnemonic, false);
+			}
+		}
 		keyFilterMethod.addActionListener(this);
 		Object[] types = Type.values();
 		Object[] typeArray = new Object[types.length+1];
@@ -227,22 +234,111 @@ public class Creator extends WindowAdapter implements ActionListener, ChangeList
 		typeFilter.addActionListener(this);
 
 		preview = new JCheckBox("Show Preview", false);
+		preview.setMnemonic(KeyEvent.VK_H);
 		update = new JButton("Update");
 		update.addActionListener(this);
+		update.setMnemonic(KeyEvent.VK_U);
 		
 		baseDirty = false;
 	}
 	
+	private static class Actions extends AbstractAction {
+		
+		static final String MNEMONIC = "Mnemonic";
+		
+		static final String EDIT = "Edit";
+		
+		static final String SORT = "Sort";
+		
+		static final String CLOSE = "Close";
+			
+		Actions(String name) {
+			super(name);
+		}
+		
+		public void actionPerformed(ActionEvent e) {
+			Object value = getValue(NAME);
+			if (value == MNEMONIC) {
+				JComponent c = (JComponent)e.getSource();
+				c.requestFocusInWindow();
+				value = getValue(MNEMONIC);
+				if (value != null) {
+					JComboBox combo = (JComboBox)c;
+					combo.setSelectedItem(value);
+				}
+			} else if (value == EDIT) {
+				JTable table = (JTable)e.getSource();
+				int row = table.getSelectionModel().getLeadSelectionIndex();
+				if (row < 0 || row >= table.getRowCount())
+					return;
+				int col = UITableModel.VALUE_COLUMN_INDEX;
+				table.editCellAt(row, table.convertColumnIndexToView(col));
+			} else if (value == SORT) {
+				value = getValue(SORT);
+				JTable table = (JTable)e.getSource();
+				for (int col=table.getColumnCount(); --col>=0;) {
+					if (value.equals(table.getColumnName(col))) {
+						table.getRowSorter().toggleSortOrder(
+								table.convertColumnIndexToModel(col));
+						break;
+					}
+				}
+			} else if (value == CLOSE) {
+				SwingUtilities.getWindowAncestor((Component)e.getSource()).dispose();
+			}
+		}
+		
+		void registerMnemonic(JComponent c, int mnemonic, boolean ctrl) {
+			int mod = InputEvent.ALT_DOWN_MASK;
+			if (ctrl)
+				mod |= InputEvent.CTRL_DOWN_MASK;
+			c.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(
+					KeyStroke.getKeyStroke(mnemonic, mod), this);
+			c.getActionMap().put(this, this);
+			
+		}
+	}
+	
+	static void registerCloseAction(JComponent c) {
+		Actions act = new Actions(Actions.CLOSE);
+		c.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(
+				KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), act);
+		c.getActionMap().put(act, act);
+	}
+	
+	private static void registerSortMnemonics(JTable t) {
+		for (int col=t.getColumnCount(); --col>=0;) {
+			String name = t.getColumnName(col);
+			int idx = name.indexOf('\u0332');
+			if (idx > 0) {
+				int mnemonic = (int)Character.toUpperCase(name.charAt(idx-1));
+				Actions act = new Actions(Actions.SORT);
+				act.putValue(Actions.SORT, name);
+				t.getInputMap(JComponent.WHEN_FOCUSED).put(
+						KeyStroke.getKeyStroke(mnemonic, InputEvent.ALT_DOWN_MASK), act);
+				t.getActionMap().put(act, act);
+			}
+		}
+	}
 
 	private JFrame createFrame() {
 		init();
 		JScrollPane primary = Preview.innerTitled(new JScrollPane(
 				primaryTable, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
-				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), "Primary");
+				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), "P\u0332rimary");
 		JScrollPane secondary = Preview.innerTitled(new JScrollPane(
 				secondaryTable, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
-				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), "Secondary");
-
+				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), "S\u0332econdary");
+		Actions mnemonicAction = new Actions(Actions.MNEMONIC);
+		mnemonicAction.registerMnemonic(primaryTable, KeyEvent.VK_P, false);
+		mnemonicAction.registerMnemonic(secondaryTable, KeyEvent.VK_S, false);
+		mnemonicAction.registerMnemonic(otherTable, KeyEvent.VK_A, false);
+		mnemonicAction.registerMnemonic(keyFilter, KeyEvent.VK_K, true);
+		mnemonicAction.registerMnemonic(typeFilter, KeyEvent.VK_T, true);
+		registerSortMnemonics(primaryTable);
+		registerSortMnemonics(secondaryTable);
+		registerSortMnemonics(otherTable);
+		
 		JPanel colors = new JPanel(new StackedTableLayout(3, 10, true));
 		colors.add(primary);
 		colors.add(secondary);
@@ -279,12 +375,16 @@ public class Creator extends WindowAdapter implements ActionListener, ChangeList
 
 		JTabbedPane tabs = new JTabbedPane();
 		tabs.addTab("UI Base", colors);
+		tabs.setMnemonicAt(0, KeyEvent.VK_B);
 		tabs.addTab("UI Controls", otherPanel);
+		tabs.setMnemonicAt(1, KeyEvent.VK_C);
 		tabs.addChangeListener(this);
 
 		JButton imp = new JButton("Import");
+		imp.setMnemonic(KeyEvent.VK_M);
 		imp.addActionListener(this);
 		JButton exp = new JButton("Export");
+		exp.setMnemonic(KeyEvent.VK_X);
 		exp.addActionListener(this);
 
 		Box south = Box.createHorizontalBox();
@@ -366,11 +466,12 @@ public class Creator extends WindowAdapter implements ActionListener, ChangeList
 	}
 
 	private static JTable createUITable(boolean keyColumnResizable, int typeWidth, Type type,
-			List<String> lst) {
+			List<String> lst, Actions editAction) {
 		String[] keys = lst.toArray(new String[lst.size()]);
 		Arrays.sort(keys);
 		TableModel mdl = type == null ? new UITableModel(keys) : new UITypeTableModel(keys, type, true);
 		JTable table = new UITable(mdl, null);
+		table.putClientProperty("JTable.autoStartsEdit", Boolean.FALSE);
 		table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
 		table.setRowHeight(25);
 		TableColumnModel columns = table.getColumnModel();
@@ -384,6 +485,12 @@ public class Creator extends WindowAdapter implements ActionListener, ChangeList
 		column.setCellRenderer(new UIDefaultsRenderer());
 		column.setCellEditor(new UIDefaultsEditor());
 		Creator.setWidth(columns.getColumn(UITableModel.DEFAULT_COLUMN_INDEX), DEFAULT_WIDTH);
+		table.setAutoCreateRowSorter(true);
+		DefaultRowSorter<?,?> sorter = (DefaultRowSorter<?,?>)table.getRowSorter();
+		sorter.setSortable(UITableModel.VALUE_COLUMN_INDEX, false);
+		table.getInputMap(JComponent.WHEN_FOCUSED).put(
+				KeyStroke.getKeyStroke(KeyEvent.VK_CONTEXT_MENU, 0), editAction);
+		table.getActionMap().put(editAction, editAction);
 		return table;
 	}
 	private static void setWidth(TableColumn column, int width) {
@@ -511,6 +618,13 @@ public class Creator extends WindowAdapter implements ActionListener, ChangeList
 		return transfer;
 	}
 
+	private static final String STARTS_WITH = "S\u0332tarts With";
+	
+	private static final String ENDS_WITH = "E\u0332nds With";
+	
+	private static final String CONTAINS = "Co\u0332ntains";
+	
+	private static final String REGEX = "R\u0332egex";
 
 	private void updateFilter() {
 		DefaultRowSorter<TableModel,Object> sorter =
@@ -519,13 +633,13 @@ public class Creator extends WindowAdapter implements ActionListener, ChangeList
 		RowFilter<TableModel,Object> filter = null;
 		if (!key.isEmpty()) {
 			Object method = keyFilterMethod.getSelectedItem();
-			if (method == "Starts With") {
+			if (method == STARTS_WITH) {
 				filter = RowFilter.regexFilter(
 						'^'+Pattern.quote(key), UITableModel.KEY_COLUMN_INDEX);
-			} else if (method == "Ends With") {
+			} else if (method == ENDS_WITH) {
 				filter = RowFilter.regexFilter(
 						Pattern.quote(key)+'$', UITableModel.KEY_COLUMN_INDEX);
-			} else if (method == "Contains") {
+			} else if (method == CONTAINS) {
 				filter = RowFilter.regexFilter(
 						Pattern.quote(key), UITableModel.KEY_COLUMN_INDEX);
 			} else {

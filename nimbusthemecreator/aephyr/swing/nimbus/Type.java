@@ -1,15 +1,14 @@
 package aephyr.swing.nimbus;
 
-import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Color;
 import java.awt.Font;
 import java.awt.Insets;
 
 import javax.swing.Icon;
-import javax.swing.JButton;
-import javax.swing.plaf.synth.SynthLookAndFeel;
-//import javax.swing.Painter; // 1.7
-import com.sun.java.swing.Painter; // 1.6
+
+import javax.swing.Painter; // 1.7
+//import com.sun.java.swing.Painter; // 1.6
 
 import aephyr.swing.nimbus.ValueChooser.*;
 

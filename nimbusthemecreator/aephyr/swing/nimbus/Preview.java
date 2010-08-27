@@ -79,21 +79,21 @@ import javax.swing.table.TableColumnModel;
 
 public class Preview extends WindowAdapter implements ChangeListener {
 
-	public static void main(final String[] args) throws Exception {
-		File file = new File("Theme.txt");
-		if (file.isFile()) {
-			CodeTransfer.doImport(
-					CodeTransfer.getStatements(file), 
-					new ArrayList<Object>(),
-					UIManager.getDefaults());
-		}
-		Creator.setNimbusLookAndFeel();
-		SwingUtilities.invokeLater(new Runnable() {
-			public void run() {
-				Preview.initiate(args[0], args[1], args[2]);
-			}
-		});
-	}
+//	public static void main(final String[] args) throws Exception {
+//		File file = new File("Theme.txt");
+//		if (file.isFile()) {
+//			CodeTransfer.doImport(
+//					CodeTransfer.getStatements(file), 
+//					new ArrayList<Object>(),
+//					UIManager.getDefaults());
+//		}
+//		Creator.setNimbusLookAndFeel();
+//		SwingUtilities.invokeLater(new Runnable() {
+//			public void run() {
+//				Preview.initiate(args[0], args[1], args[2]);
+//			}
+//		});
+//	}
 	
 	static void initiate(String X, String Y, String I) {
 		int x = -1, y = -1, tabIndex = 0;
@@ -487,17 +487,25 @@ public class Preview extends WindowAdapter implements ChangeListener {
 	private static Font titleFont = new Font(Font.SANS_SERIF, Font.PLAIN, 10);
 	
 	static <T extends JComponent> T innerTitled(T c, String title) {
-		return titled(innerBorder, TitledBorder.BELOW_TOP, c, title);
+		c.setBorder(createTitledBorder(true, title));
+		return c;
 	}
 	
 	static <T extends JComponent> T titled(T c, String title) {
-		return titled(outerBorder, TitledBorder.ABOVE_TOP, c, title);
-	}
-	
-	private static <T extends JComponent> T titled(Border b, int p, T c, String t) {
-		c.setBorder(new TitledBorder(b, t, TitledBorder.LEADING, p, titleFont));
+		c.setBorder(createTitledBorder(false, title));
 		return c;
 	}
+	
+	static TitledBorder createTitledBorder(boolean inner, String title) {
+		Border b = inner ? innerBorder : outerBorder;
+		int pos = inner ? TitledBorder.BELOW_TOP : TitledBorder.ABOVE_TOP;
+		return new TitledBorder(b, title, TitledBorder.LEADING, pos, titleFont);
+	}
+	
+//	private static <T extends JComponent> T titled(Border b, int p, T c, String t) {
+//		c.setBorder(new TitledBorder(b, t, TitledBorder.LEADING, p, titleFont));
+//		return c;
+//	}
 
 	static JPanel centered(JComponent c) {
 		JPanel panel = new JPanel(new GridBagLayout());

@@ -61,10 +61,10 @@ public class UITableModel extends AbstractTableModel {
 	@Override
 	public String getColumnName(int col) {
 		switch (col) {
-		case KEY_COLUMN_INDEX: return "Key";
-		case TYPE_COLUMN_INDEX: return "Type";
+		case KEY_COLUMN_INDEX: return "K\u0332ey";
+		case TYPE_COLUMN_INDEX: return "T\u0332ype";
 		case VALUE_COLUMN_INDEX: return "Value";
-		case DEFAULT_COLUMN_INDEX: return "Default";
+		case DEFAULT_COLUMN_INDEX: return "D\u0332efault";
 		}
 		throw new IllegalArgumentException();
 	}

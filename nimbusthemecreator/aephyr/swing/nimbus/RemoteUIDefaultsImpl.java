@@ -1,7 +1,7 @@
 package aephyr.swing.nimbus;
 
-import java.awt.Color;
 import java.awt.Font;
+import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsDevice;
@@ -30,7 +30,8 @@ import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.plaf.ColorUIResource;
 
-import com.sun.java.swing.Painter;
+//import com.sun.java.swing.Painter;
+import javax.swing.Painter;
 
 public class RemoteUIDefaultsImpl implements RemoteUIDefaults {
 	
