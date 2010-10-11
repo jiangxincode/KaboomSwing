@@ -1,5 +1,7 @@
 package aephyr.swing;
 
+import java.awt.event.KeyListener;
+
 public interface Cachable {
 	
 	public int getLoadingDelay();

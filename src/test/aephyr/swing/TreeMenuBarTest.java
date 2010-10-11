@@ -7,6 +7,8 @@ import javax.swing.*;
 import javax.swing.border.AbstractBorder;
 import javax.swing.border.Border;
 import javax.swing.tree.*;
+
+import aephyr.swing.CurlMenuBar;
 import aephyr.swing.TreeMenuBar;
 
 public class TreeMenuBarTest implements Runnable {
@@ -17,6 +19,7 @@ public class TreeMenuBarTest implements Runnable {
 				break;
 			}
 		}
+//		UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
 		SwingUtilities.invokeLater(new TreeMenuBarTest());
 	}
 	

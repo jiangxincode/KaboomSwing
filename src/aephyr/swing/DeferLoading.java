@@ -17,7 +17,8 @@ import javax.swing.JScrollPane;
 import javax.swing.Timer;
 
 
-public class DeferLoading implements AdjustmentListener, ActionListener, PropertyChangeListener {
+public class DeferLoading implements AdjustmentListener,
+		ActionListener, PropertyChangeListener {
 	
 	public DeferLoading(Cachable cachable, JScrollPane scroller) {
 		this.cachable = cachable;
@@ -29,8 +30,7 @@ public class DeferLoading implements AdjustmentListener, ActionListener, Propert
 			JScrollBar hsb = scroller.getHorizontalScrollBar();
 			if (hsb != null)
 				hsb.addAdjustmentListener(this);
-			scroller.addPropertyChangeListener("horizontalScrollBar", this);
-			scroller.addPropertyChangeListener("verticalScrollBar", this);
+			scroller.addPropertyChangeListener(this);
 		}
 	}
 	
@@ -42,7 +42,7 @@ public class DeferLoading implements AdjustmentListener, ActionListener, Propert
 	
 	private Set<Integer> loadingSet;
 	
-	private long startTime;
+	private boolean scrollingKeyPressed = false;
 	
 	private boolean managed = false;
 	
@@ -92,7 +92,7 @@ public class DeferLoading implements AdjustmentListener, ActionListener, Propert
 	public void adjustmentValueChanged(AdjustmentEvent e) {
 		if (e.getValueIsAdjusting() || EventQueue.getCurrentEvent() instanceof MouseWheelEvent) {
 			restart();
-		} else if (timer != null && !managed) {
+		} else if (timer != null && !scrollingKeyPressed && !managed) {
 			stop(true);
 		}
 	}
@@ -123,22 +123,22 @@ public class DeferLoading implements AdjustmentListener, ActionListener, Propert
 
 	@Override
 	public void propertyChange(PropertyChangeEvent evt) {
-		JScrollBar oldValue = (JScrollBar)evt.getOldValue();
-		if (oldValue != null)
-			oldValue.removeAdjustmentListener(this);
-		JScrollBar newValue = (JScrollBar)evt.getNewValue();
-		if (newValue != null)
-			newValue.addAdjustmentListener(this);
+		if (evt.getPropertyName() == "horizontalScrollBar" ||
+				evt.getPropertyName() == "verticalScrollBar") {
+			JScrollBar oldValue = (JScrollBar)evt.getOldValue();
+			if (oldValue != null)
+				oldValue.removeAdjustmentListener(this);
+			JScrollBar newValue = (JScrollBar)evt.getNewValue();
+			if (newValue != null)
+				newValue.addAdjustmentListener(this);
+		}
 	}
 	
 	public void dispose() {
-		if (timer != null)
-			stop(false);
 		JScrollPane scroller = this.scroller;
 		if (scroller != null) {
 			this.scroller = null;
-			scroller.removePropertyChangeListener("horizontalScrollBar", this);
-			scroller.removePropertyChangeListener("verticalScrollBar", this);
+			scroller.removePropertyChangeListener(this);
 			JScrollBar vsb = scroller.getVerticalScrollBar();
 			if (vsb != null)
 				vsb.removeAdjustmentListener(this);
@@ -146,6 +146,8 @@ public class DeferLoading implements AdjustmentListener, ActionListener, Propert
 			if (hsb != null)
 				hsb.removeAdjustmentListener(this);
 		}
+		if (timer != null)
+			stop(false);
 	}
 
 }

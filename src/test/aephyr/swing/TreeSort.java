@@ -103,24 +103,23 @@ public class TreeSort extends MouseAdapter implements Runnable,
 		transformTree.setModel(transformModel);
 		FlowLayout flow = new FlowLayout(FlowLayout.LEADING, 0, 0);
 		flow.setAlignOnBaseline(true);
-		Border border = BorderFactory.createEmptyBorder(0, 5, 0, 3);
+		Border border = BorderFactory.createEmptyBorder(0, 20, 0, 3);
 
 		JMenuBar leftBar = new JMenuBar();
 		leftBar.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT);
 		
-		JMenu menu = createMenu("Sort");
+		JMenu menu = createMenu("Sort", KeyEvent.VK_S);
 		ButtonGroup group = new ButtonGroup();
-		addRadio(menu, "Ascending", false, group);
-		addRadio(menu, "Descending", false, group);
-		addRadio(menu, "Unsorted", true, group);
+		addRadio(menu, "Ascending", false, group, KeyEvent.VK_A);
+		addRadio(menu, "Descending", false, group, KeyEvent.VK_D);
+		addRadio(menu, "Unsorted", true, group, KeyEvent.VK_U);
 		leftBar.add(menu);
 		
-		menu = createMenu("Filter");
+		menu = createMenu("Filter", KeyEvent.VK_F);
 		menu.add(createTextPanel(flow, border, "Regex: ", "Filter"));
 		leftBar.add(menu);
 
 		JScrollPane left = createScrollPane(transformTree, leftBar);
-		left.setLayout(new ScrollHeaderLayout());
 
 		tree = new JTree(model);
 		tree.setRowHeight(20);
@@ -130,23 +129,22 @@ public class TreeSort extends MouseAdapter implements Runnable,
 		tree.setToggleClickCount(-1);
 		tree.addMouseListener(this);
 		
-		JPopupMenu popup = new JPopupMenu();
-		popup.add("Insert").addActionListener(this);
-		popup.add("Remove").addActionListener(this);
-		popup.add("Change").addActionListener(this);
-		popup.addSeparator();
-		popup.add("NodesChanged on Random Children").addActionListener(this);
-		popup.add("NodesChanged on All Children").addActionListener(this);
-		tree.setComponentPopupMenu(popup);
-		
 		JMenuBar rightBar = new JMenuBar();
 		rightBar.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT);
-		insertMenu = menu = createMenu("Insert");
+		modifyMenu = menu = createMenu("Modify", KeyEvent.VK_D);
 		menu.add(createTextPanel(flow, border, "Insert: ", "Insert"));
 		menu.addSeparator();
-		menu.add("Use popup for other changes");
+		add(menu, "Insert", KeyEvent.VK_I);
+		add(menu, "Remove", KeyEvent.VK_R);
+		add(menu, "Change", KeyEvent.VK_C);
+		add(menu, "NodesChanged on Random Children", KeyEvent.VK_N);
+		add(menu, "NodesChanged on All Children", KeyEvent.VK_A);
+		add(menu, "Structure Change", KeyEvent.VK_S);
+		menu.addSeparator();
+		add(menu, "Refresh", KeyEvent.VK_F);
+		
 		rightBar.add(menu);
-		simulationMenu = menu = createMenu("Simulation");
+		simulationMenu = menu = createMenu("Simulation", KeyEvent.VK_M);
 		simulationFilter = new JCheckBoxMenuItem("Can change filter", false);
 		menu.add(simulationFilter);
 		simulationSort = new JCheckBoxMenuItem("Can change sort order", false);
@@ -162,7 +160,6 @@ public class TreeSort extends MouseAdapter implements Runnable,
 		simulationPanel.setVisible(false);
 		
 		JScrollPane rightScroller = createScrollPane(tree, rightBar);
-		rightScroller.setLayout(new ScrollHeaderLayout());
 		JPanel right = new JPanel(new BorderLayout());
 		right.add(rightScroller, BorderLayout.CENTER);
 		right.add(simulationPanel, BorderLayout.SOUTH);
@@ -178,24 +175,40 @@ public class TreeSort extends MouseAdapter implements Runnable,
 		frame.setLocationRelativeTo(null);
 		frame.setVisible(true);		
 	}
-	private JMenu createMenu(String text) {
+	private JMenu createMenu(String text, int mnemonic) {
 		JMenu menu = new JMenu(text);
 		menu.addMenuListener(this);
+		menu.setMnemonic(mnemonic);
 		return menu;
 	}
-	private void addRadio(JMenu menu, String text, boolean sel, ButtonGroup group) {
+	private void addRadio(JMenu menu, String text, boolean sel,
+			ButtonGroup group, int mnemonic) {
 		JRadioButtonMenuItem item = new JRadioButtonMenuItem(text, sel);
+		item.setMnemonic(mnemonic);
+		item.setAccelerator(KeyStroke.getKeyStroke(mnemonic,
+				InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK));
 		group.add(item);
 		menu.add(item);
 		item.addItemListener(this);
 	}
-	private JPanel createTextPanel(FlowLayout layout, Border border, String label, String cmd) {
+	private void add(JMenu menu, String text, int mnemonic) {
+		JMenuItem item = menu.add(text);
+		item.setMnemonic(mnemonic);
+		int index = text.indexOf(mnemonic);
+		if (index >= 0)
+			item.setDisplayedMnemonicIndex(index);
+		item.setAccelerator(KeyStroke.getKeyStroke(mnemonic,
+				InputEvent.CTRL_DOWN_MASK));
+		item.addActionListener(this);
+	}
+	private JPanel createTextPanel(FlowLayout layout, Border border,
+			String label, String cmd) {
 		JPanel panel = new JPanel(layout);
 		panel.setBorder(border);
 		panel.setOpaque(false);
 		JLabel lbl = new JLabel(label);
 		panel.add(lbl);
-		JTextField field = new JTextField(13);
+		JTextField field = new JTextField(15);
 		field.setActionCommand(cmd);
 		field.addActionListener(this);
 		panel.add(field);
@@ -205,6 +218,7 @@ public class TreeSort extends MouseAdapter implements Runnable,
 		JScrollPane scroller = new JScrollPane(tree);
 		scroller.setColumnHeaderView(header);
 		scroller.getColumnHeader().addChangeListener(this);
+		scroller.setLayout(new ScrollHeaderLayout());
 		return scroller;
 	}
 	
@@ -218,7 +232,7 @@ public class TreeSort extends MouseAdapter implements Runnable,
 	
 	private JTree transformTree;
 	
-	private JMenu insertMenu;
+	private JMenu modifyMenu;
 	
 	private JMenu simulationMenu;
 	
@@ -237,12 +251,15 @@ public class TreeSort extends MouseAdapter implements Runnable,
 		return i-12;
 	}
 	
-	private MutableTreeNode createTreeNode(String text, int depth) {
-		DefaultMutableTreeNode node = new DefaultMutableTreeNode(text);
+	private MutableTreeNode addChildren(DefaultMutableTreeNode node, int depth) {
 		if (--depth >= 0)
 			for (int i=bellCurve(); --i>=0;)
 				node.add(createTreeNode(createCellValue(), depth));
 		return node;
+	}
+	
+	private MutableTreeNode createTreeNode(String text, int depth) {
+		return addChildren(new DefaultMutableTreeNode(text), depth);
 	}
 	
 	private String createCellValue() {
@@ -328,7 +345,7 @@ public class TreeSort extends MouseAdapter implements Runnable,
 				text = createCellValue();
 			}
 			path = path == null ? new TreePath(parent) : path.getParentPath();
-			MutableTreeNode node = createTreeNode(text, (4-path.getPathCount()));
+			MutableTreeNode node = createTreeNode(text, getChildDepth(path));
 			model.insertNodeInto(node, parent, index);
 			tree.setSelectionPath(path.pathByAddingChild(node));
 		} else if (e.getActionCommand() == "Remove") {
@@ -350,11 +367,41 @@ public class TreeSort extends MouseAdapter implements Runnable,
 			changeChildNodes(true);
 		} else if (e.getActionCommand() == "NodesChanged on All Children") {
 			changeChildNodes(false);
+		} else if (e.getActionCommand() == "Structure Chaange") {
+			TreePath[] paths = tree.getSelectionPaths();
+			if (paths == null)
+				paths = new TreePath[] { new TreePath(model.getRoot())};
+			for (TreePath path : paths) {
+				DefaultMutableTreeNode node = (DefaultMutableTreeNode)path.getLastPathComponent();
+				node.removeAllChildren();
+				addChildren(node, getChildDepth(path));
+				model.nodeStructureChanged(node);
+			}
+		} else if (e.getActionCommand() == "Refresh") {
+			TreePath path = tree.getLeadSelectionPath();
+			if (path == null)
+				return;
+			boolean exp = tree.isExpanded(path);
+			boolean expT = transformTree.isExpanded(path);
+			MutableTreeNode node = (MutableTreeNode)path.getLastPathComponent();
+			MutableTreeNode parent = (MutableTreeNode)node.getParent();
+			int index = parent.getIndex(node);
+			model.removeNodeFromParent(node);
+			model.insertNodeInto(node, parent, index);
+			if (exp)
+				tree.expandPath(path);
+			if (expT)
+				transformTree.expandPath(path);
+			tree.addSelectionPath(path);
 		} else if (e.getActionCommand() == "Simulation") {
 			if (simulation == null)
 				simulation = new Simulation();
 			simulation.start(simulationFilter.isSelected(), simulationSort.isSelected());
 		}
+	}
+	
+	private static int getChildDepth(TreePath path) {
+		return 4-path.getPathCount();
 	}
 	
 	private static MutableTreeNode getNode(TreePath path) {
@@ -755,7 +802,7 @@ public class TreeSort extends MouseAdapter implements Runnable,
 				treePopup = tree.getComponentPopupMenu();
 				tree.setComponentPopupMenu(null);
 			}
-			insertMenu.setEnabled(b);
+			modifyMenu.setEnabled(b);
 			simulationMenu.setEnabled(b);
 			simulationPanel.setVisible(!b);
 		}

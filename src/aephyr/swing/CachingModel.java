@@ -147,6 +147,11 @@ abstract class CachingModel implements Runnable {
 	protected void setCachedValues(Object[] values, int offset) {
 		this.offset = offset;
 		this.values = values;
+		if (loaders != null && !loaders.isEmpty()) {
+			synchronized (this) {
+				remap(-1);
+			}
+		}
 	}
 	
 
@@ -169,12 +174,12 @@ abstract class CachingModel implements Runnable {
 		if (values != null) {
 			firstIndex -= offset;
 			lastIndex -= offset;
+			if (firstIndex < 0) {
+				if (type == DELETE)
+					offset += firstIndex-lastIndex-1;
+				firstIndex = 0;
+			}
 			if (lastIndex >= 0 && firstIndex < values.length) {
-				if (firstIndex < 0) {
-					if (type == DELETE)
-						offset += firstIndex;
-					firstIndex = 0;
-				}
 				if (++lastIndex > values.length)
 					lastIndex = values.length;
 				switch (type) {
@@ -237,15 +242,22 @@ abstract class CachingModel implements Runnable {
 		}
 	}
 	
-	synchronized void setCustomLoading(boolean custom) {
+	void setCustomLoading(boolean custom) {
+		TreeMap<Integer,Loader> map = loaders;
 		if (custom) {
-			loaders = new TreeMap<Integer,Loader>();
+			if (map == null) {
+				synchronized (this) {
+					loaders = new TreeMap<Integer,Loader>();
+				}
+			}
 		} else {
-			TreeMap<Integer,Loader> map = loaders;
 			if (map != null) {
+				synchronized (this) {
+					loaders = null;
+					notifyAll();
+				}
 				for (Loader loader : map.values())
 					loader.execute();
-				loaders = null;
 			}
 		}
 	}
@@ -273,10 +285,11 @@ abstract class CachingModel implements Runnable {
 					thread = new Thread(this);
 					thread.setDaemon(true);
 					thread.start();
+				} else {
+					notifyAll();
 				}
 			}
 		}
-
 	}
 	
 	@Override
@@ -287,6 +300,13 @@ abstract class CachingModel implements Runnable {
 				if (loaders != null)
 					entry = loaders.pollFirstEntry();
 				if (entry == null) {
+					if (loaders != null) {
+						try {
+							wait(30000);
+							if (loaders != null && !loaders.isEmpty())
+								continue;
+						} catch (InterruptedException e) {}
+					}
 					thread = null;
 					return;
 				}

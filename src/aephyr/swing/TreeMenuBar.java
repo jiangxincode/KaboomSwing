@@ -315,18 +315,20 @@ public class TreeMenuBar extends CurlMenuBar {
 	protected void menuPathSelected(TreePath path) {
 		path = append(menuRoot, path);
 		TreePath oldPath = this.path;
+		fireSelectionPathChanged(path, false, null, null);
 		setPath(path);
-		fireSelectionPathChanged(oldPath, path);
+		fireSelectionPathChanged(path, true, oldPath, path);
 		MenuSelectionManager.defaultManager().clearSelectedPath();
 	}
 	
-	protected void fireSelectionPathChanged(TreePath oldPath, TreePath newPath) {
+	protected void fireSelectionPathChanged(TreePath path, boolean sel,
+			TreePath oldLeadPath, TreePath newLeadPath) {
 		Object[] listeners = listenerList.getListenerList();
 		TreeSelectionEvent e = null;
 		for (int i = listeners.length-2; i>=0; i-=2) {
 			if (listeners[i]==TreeSelectionListener.class) {
 				if (e == null)
-					e = new TreeSelectionEvent(this, newPath, true, oldPath, newPath);
+					e = new TreeSelectionEvent(this, path, sel, oldLeadPath, newLeadPath);
 				((TreeSelectionListener)listeners[i+1]).valueChanged(e);
 			}
 		}

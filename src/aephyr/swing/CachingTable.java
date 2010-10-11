@@ -277,7 +277,7 @@ public class CachingTable extends JTable implements Cachable {
 	}
 	
 	private boolean scrollingKeyPressed = false;
-	
+
 	@Override
 	protected void processKeyEvent(KeyEvent e) {
 		super.processKeyEvent(e);
@@ -303,17 +303,16 @@ public class CachingTable extends JTable implements Cachable {
 			}
 		}
 	}
-	
+
 	private boolean isScrollingKey(KeyEvent e) {
 		switch (e.getKeyCode()) {
 		case KeyEvent.VK_PAGE_UP: case KeyEvent.VK_PAGE_DOWN:
 		case KeyEvent.VK_UP: case KeyEvent.VK_DOWN:
-		case KeyEvent.VK_LEFT: case KeyEvent.VK_RIGHT:
 			return true;
 		}
 		return false;
 	}
-	
+    
 	@Override
 	public void sorterChanged(RowSorterEvent e) {
 		if (e.getType() == RowSorterEvent.Type.SORTED) {

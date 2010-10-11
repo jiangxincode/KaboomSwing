@@ -143,7 +143,9 @@ public class CachingList extends JList implements Cachable {
 	 * @param model
 	 */
 	public void setLoadingModel(Model model) {
+		Model oldModel = getLoadingModel();
 		getCachingModel().setModel(model);
+		firePropertyChange("loadingModel", oldModel, model);
 	}
 
 	/**
@@ -234,7 +236,7 @@ public class CachingList extends JList implements Cachable {
 	}
 	
 	private boolean scrollingKeyPressed = false;
-	
+
 	@Override
 	protected void processKeyEvent(KeyEvent e) {
 		super.processKeyEvent(e);
@@ -260,7 +262,7 @@ public class CachingList extends JList implements Cachable {
 			}
 		}
 	}
-	
+
 	private boolean isScrollingKey(KeyEvent e) {
 		switch (e.getKeyCode()) {
 		case KeyEvent.VK_PAGE_UP: case KeyEvent.VK_PAGE_DOWN:
@@ -270,7 +272,6 @@ public class CachingList extends JList implements Cachable {
 		}
 		return false;
 	}
-
 	
 	/**
 	 * Overridden to use string values supplied by {@link #Model.getSearchStringAt(int)}.
