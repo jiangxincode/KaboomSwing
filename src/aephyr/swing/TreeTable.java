@@ -54,6 +54,7 @@ import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableModel;
 import javax.swing.tree.DefaultTreeModel;
+import javax.swing.tree.ExpandVetoException;
 import javax.swing.tree.TreeCellRenderer;
 import javax.swing.tree.TreeModel;
 import javax.swing.tree.TreePath;
@@ -84,7 +85,15 @@ public class TreeTable extends JComponent implements Scrollable {
 		rowModel = rm;
 		focusRenderer = new FocusRenderer();
 		Adapter adapter = new Adapter(tm.getRoot());
-		tree = new Tree(tm);
+		
+		// Intercepter hack-trick to get the UI TreeModelListeners
+		DefaultTreeModel intercepter = tm instanceof DefaultTreeModel ?
+				(DefaultTreeModel)tm : new DefaultTreeModel(null);
+		tree = new Tree(intercepter);
+		uiTreeModelListeners = intercepter.getTreeModelListeners();
+		if (tm != intercepter)
+			tree.setModel(tm);
+		
 		table = new Table(adapter, cm, adapter);
 		
 		// this must be set after table construction
@@ -122,6 +131,8 @@ public class TreeTable extends JComponent implements Scrollable {
 	private boolean columnFocusEnabled = true;
 
 	private boolean autoCreateTableHeader = true;
+	
+	private TreeModelListener[] uiTreeModelListeners;
 	
 	
 	@Override
@@ -461,11 +472,11 @@ public class TreeTable extends JComponent implements Scrollable {
 		// it is possible for a dragged column to be "land locked"
 		// on top of another if the bottom column has a large enough width
 		TableCellRenderer focusRenderer = getFocusRenderer();
-		boolean onlyIfTreeColumn = focusRenderer instanceof UIResource;
-		if (!onlyIfTreeColumn || isColumnFocusEnabled()) {
+		if (isColumnFocusEnabled()) {
 			int lead = getColumnModel().getSelectionModel()
 					.getLeadSelectionIndex();
-			if (lead < 0 || (onlyIfTreeColumn && lead != getHierarchialColumn()))
+			if (lead < 0 || ((focusRenderer instanceof UIResource)
+					&& lead != getHierarchialColumn()))
 				return;
 			int row = getRowForPath(getLeadSelectionPath());
 			Rectangle r = table.getCellRect(row, lead, false);
@@ -669,16 +680,16 @@ public class TreeTable extends JComponent implements Scrollable {
 		removeListener(TreeWillExpandListener.class, l);
 	}
 	
-	private void fireTreeWillExpandEvent(TreePath path, boolean exp) {
+	private void fireTreeWillExpandEvent(TreePath path, boolean exp) throws ExpandVetoException {
 		TreeExpansionEvent e = new TreeExpansionEvent(this, path);
 		Object[] listeners = listenerList.getListenerList();
 		for (int i = listeners.length-2; i>=0; i-=2) {
-			if (listeners[i]==TreeExpansionListener.class) {
-				TreeExpansionListener lis = (TreeExpansionListener)listeners[i+1];
+			if (listeners[i]==TreeWillExpandListener.class) {
+				TreeWillExpandListener lis = (TreeWillExpandListener)listeners[i+1];
 				if (exp) {
-					lis.treeExpanded(e);
+					lis.treeWillExpand(e);
 				} else {
-					lis.treeCollapsed(e);
+					lis.treeWillCollapse(e);
 				}
 			}
 		}
@@ -1333,6 +1344,39 @@ public class TreeTable extends JComponent implements Scrollable {
 			} else {
 				fireTableCellUpdated(row, e.getColumn());
 			}
+			if (getRowHeight() <= 0)
+				updateTreeRowHeight(e.getTreePath(), row);
+		}
+		
+		/**
+		 * Quite hackish... BasicTreeUI has to be sent a
+		 * treeNodesChanged event to revalidate a node.
+		 * Maybe there is a better way?
+		 * 
+		 * @param row
+		 */
+		private void updateTreeRowHeight(TreePath path, int row) {
+			int[] children;
+			Object[] childNodes;
+			if (path.getParentPath() == null) {
+				children = null;
+				childNodes = null;
+			} else {
+				Object node = path.getLastPathComponent();
+				path = path.getParentPath();
+				Object parentNode = path.getLastPathComponent();
+				int index = getTreeModel().getIndexOfChild(
+						parentNode, node);
+				children = new int[] { index };
+				childNodes = new Object[] { node };
+			}
+			TreeModelEvent te = new TreeModelEvent(
+					getTreeModel(), path, children, childNodes);
+			for (TreeModelListener l : uiTreeModelListeners) {
+				l.treeNodesChanged(te);
+			}
+			updateTableRowHeights(row, row+1);
+
 		}
 
 		// TreeModelListener interface
@@ -1440,12 +1484,14 @@ public class TreeTable extends JComponent implements Scrollable {
 		// TreeWillExpandListener interface
 
 		@Override
-		public void treeWillExpand(TreeExpansionEvent e) {
+		public void treeWillExpand(TreeExpansionEvent e)
+				throws ExpandVetoException {
 			fireTreeWillExpandEvent(e.getPath(), true);
 		}
 
 		@Override
-		public void treeWillCollapse(TreeExpansionEvent e) {
+		public void treeWillCollapse(TreeExpansionEvent e)
+				throws ExpandVetoException {
 			fireTreeWillExpandEvent(e.getPath(), false);
 		}
 
@@ -1474,8 +1520,9 @@ public class TreeTable extends JComponent implements Scrollable {
 					// Hopefully table's model isn't being swapped out. Yikes.
 					return;
 				}
-			} else if (name == "rowHeight" && evt.getSource() != tree) {
-				return; // only fire once
+			} else if (name == "rowHeight") {
+				if (evt.getSource() != tree)
+					return; // only fire once
 			} else if (name == "columnModel") {
 				TableColumnModel cm = (TableColumnModel)evt.getOldValue();
 				if (cm != null)
@@ -1619,8 +1666,6 @@ public class TreeTable extends JComponent implements Scrollable {
 			int maxRow = 0;
 			minRow = min(minRow, e.getNewLeadSelectionPath());
 			maxRow = max(maxRow, e.getNewLeadSelectionPath());
-			minRow = min(minRow, e.getOldLeadSelectionPath());
-			maxRow = max(maxRow, e.getOldLeadSelectionPath());
 			TreePath[] paths = e.getPaths();
 			if (paths != null) {
 				for (TreePath path : paths) {
