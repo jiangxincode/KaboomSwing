@@ -1,8 +1,8 @@
 package aephyr.swing.treetable;
 
-import aephyr.swing.event.RowModelListener;
+import aephyr.swing.event.TreeColumnModelListener;
 
-public interface RowModel {
+public interface TreeColumnModel {
 
 	String getColumnName(int column);
 	
@@ -18,8 +18,8 @@ public interface RowModel {
 	
 	int getHierarchialColumn();
 	
-	void addRowModelListener(RowModelListener l);
+	void addTreeColumnModelListener(TreeColumnModelListener l);
 	
-	void removeRowModelListener(RowModelListener l);
+	void removeTreeColumnModelListener(TreeColumnModelListener l);
 
 }

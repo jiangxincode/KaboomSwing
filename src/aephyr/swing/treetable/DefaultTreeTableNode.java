@@ -28,6 +28,7 @@ public class DefaultTreeTableNode extends DefaultMutableTreeNode implements Muta
 		rowData[column] = value;
 	}
 	
+	@Override
 	public int getColumnCount() {
 		return rowData.length;
 	}

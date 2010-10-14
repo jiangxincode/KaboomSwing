@@ -1,5 +1,6 @@
 package aephyr.swing.mnemonic;
 
+import java.awt.Component;
 import java.awt.Container;
 import java.awt.event.ContainerEvent;
 import java.awt.event.ContainerListener;
@@ -21,6 +22,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
 import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 
@@ -312,6 +314,30 @@ public class MnemonicManager implements MnemonicFactory {
 		entries.add(idx, entry);
 	}
 	
+	public void setMenuItemMnemonicsFor(JMenu menu) {
+		HashMap<Integer,MnemonicEntry> mnemonic_to_entry =
+			new HashMap<Integer,MnemonicEntry>(32);
+		ArrayList<MnemonicEntry> unset_entries = null;
+		Component[] items = menu.getMenuComponents();
+		for (Component c : items) {
+			if (c instanceof JMenu)
+				setMenuItemMnemonicsFor((JMenu)c);
+			if (c instanceof JMenuItem) {
+				JMenuItem item = (JMenuItem)c;
+				unset_entries = setMnemonic(new MnemonicEntry(
+						item, new DefaultMnemonic()),
+						mnemonic_to_entry, unset_entries);
+			}
+		}
+		if (unset_entries != null)
+			bump(unset_entries, mnemonic_to_entry, true);
+		for (Entry<Integer,MnemonicEntry> entry : mnemonic_to_entry.entrySet()) {
+			JMenuItem item = (JMenuItem)entry.getValue().component;
+			item.setMnemonic(entry.getKey());
+		}
+	}
+
+	
 	@SuppressWarnings("unchecked")
 	private void validate() {
 		if (!valid) {
@@ -334,55 +360,62 @@ public class MnemonicManager implements MnemonicFactory {
 							mnemonic_to_entry, unset_entries);
 				}
 			}
-			if (unset_entries != null) {
-				// see if a higher priority entry can be knocked
-				// to a different mnemonicKey so that as many
-				// mnemonics as possible are set
-				next: for (MnemonicEntry uEntry : unset_entries) {
-					// list of possible entries to bump 
-					ArrayList<MnemonicEntry> entries = new ArrayList<MnemonicEntry>();
-					for (uEntry.index = 0; ; uEntry.index++) {
-						int mnemonic = uEntry.getMnemonic();
-						if (mnemonic == 0)
-							break;
-						MnemonicEntry e = mnemonic_to_entry.get(mnemonic);
-						// shouldn't be null but could be with a bad
-						// implementation of the Mnemonic interface
-						if (e != null)
-							add(entries, e, null);
-					}
-					// lower priority entries are at the end of the list
-					// so start there
-					for (int i=entries.size(); --i>=0;) {
-						MnemonicEntry mEntry = entries.get(i);
-						// test if bumpable
-						for (int index = mEntry.index; ;) {
-							mEntry.index++;
-							int mnemonic = mEntry.getMnemonic();
-							if (mnemonic == 0) {
-								// reached end, mEntry not bumpable
-								mEntry.index = index;
-								break;
-							} else {
-								Integer mnemonicKey = mnemonic;
-								if (!mnemonic_to_entry.containsKey(mnemonicKey)) {
-									// mEntry will be bumped, find map entry in mnemonic_to_entry
-									for (Entry<Integer,MnemonicEntry> entry : mnemonic_to_entry.entrySet()) {
-										if (entry.getValue() == mEntry) {
-											entry.setValue(uEntry);
-											mnemonic_to_entry.put(mnemonicKey, mEntry);
-											continue next;
-										}
-									}
+			if (unset_entries != null)
+				bump(unset_entries, mnemonic_to_entry, false);
+			for (Entry<Integer,MnemonicEntry> entry : mnemonic_to_entry.entrySet()) {
+				entry.getValue().setMnemonicKey(entry.getKey());
+			}
+		}
+	}
+	
+	private void bump(ArrayList<MnemonicEntry> unset_entries,
+			HashMap<Integer,MnemonicEntry> mnemonic_to_entry, boolean canDuplicate) {
+		// TODO: if canDuplicate, create a map of mnemonic to # of set,
+		// when duplication is required, use the first preferred mnemonic with
+		// the least duplication
+		
+		// see if a higher priority entry can be knocked
+		// to a different mnemonicKey so that as many
+		// mnemonics as possible are set
+		next: for (MnemonicEntry uEntry : unset_entries) {
+			// list of possible entries to bump 
+			ArrayList<MnemonicEntry> entries = new ArrayList<MnemonicEntry>();
+			for (uEntry.index = 0; ; uEntry.index++) {
+				int mnemonic = uEntry.getMnemonic();
+				if (mnemonic == 0)
+					break;
+				MnemonicEntry e = mnemonic_to_entry.get(mnemonic);
+				// shouldn't be null but could be with a bad
+				// implementation of the Mnemonic interface
+				if (e != null)
+					add(entries, e, null);
+			}
+			// lower priority entries are at the end of the list
+			// so start there
+			for (int i=entries.size(); --i>=0;) {
+				MnemonicEntry mEntry = entries.get(i);
+				// test if bumpable
+				for (int index = mEntry.index; ;) {
+					mEntry.index++;
+					int mnemonic = mEntry.getMnemonic();
+					if (mnemonic == 0) {
+						// reached end, mEntry not bumpable
+						mEntry.index = index;
+						break;
+					} else {
+						Integer mnemonicKey = mnemonic;
+						if (!mnemonic_to_entry.containsKey(mnemonicKey)) {
+							// mEntry will be bumped, find map entry in mnemonic_to_entry
+							for (Entry<Integer,MnemonicEntry> entry : mnemonic_to_entry.entrySet()) {
+								if (entry.getValue() == mEntry) {
+									entry.setValue(uEntry);
+									mnemonic_to_entry.put(mnemonicKey, mEntry);
+									continue next;
 								}
 							}
 						}
 					}
-					
 				}
-			}
-			for (Entry<Integer,MnemonicEntry> entry : mnemonic_to_entry.entrySet()) {
-				entry.getValue().setMnemonicKey(entry.getKey());
 			}
 		}
 	}

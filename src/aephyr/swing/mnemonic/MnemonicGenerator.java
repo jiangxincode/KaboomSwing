@@ -10,6 +10,7 @@ import java.awt.event.InputEvent;
 import javax.swing.AbstractButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JTabbedPane;
 
@@ -23,17 +24,18 @@ public class MnemonicGenerator implements MnemonicFactory {
 	
 	public MnemonicGenerator(
 			int extendedModifiers, boolean upperCaseBiased) {
-		this (new MnemonicManager(), extendedModifiers, upperCaseBiased);
+		this (new MnemonicManager(), extendedModifiers, upperCaseBiased, true);
 	}
 	
 	public MnemonicGenerator(MnemonicManager manager,
-			int extendedModifiers, boolean upperCaseBiased) {
+			int extendedModifiers, boolean upperCaseBiased, boolean generateMenuItemMnemonics) {
 		if (extendedModifiers != -1 && (extendedModifiers &
 				~(InputEvent.ALT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK | InputEvent.META_DOWN_MASK)) != 0)
 			throw new IllegalArgumentException();
 		this.manager = manager;
 		this.upperCaseBiased = upperCaseBiased;
 		this.extendedModifiers = extendedModifiers;
+		this.generateMenuItemMnemonics = generateMenuItemMnemonics;
 	}
 	
 	private final MnemonicManager manager;
@@ -41,6 +43,8 @@ public class MnemonicGenerator implements MnemonicFactory {
 	private final int extendedModifiers;
 	
 	private final boolean upperCaseBiased;
+	
+	private final boolean generateMenuItemMnemonics;
 	
 	public final MnemonicManager getMnemonicManager() {
 		return manager;
@@ -107,8 +111,14 @@ public class MnemonicGenerator implements MnemonicFactory {
 
 	@Override
 	public Mnemonic createMnemonic(JComponent c) {
+		if (generateMenuItemMnemonics && c instanceof JMenu)
+			generateMenuItemMnemonics((JMenu)c);
 		return new DefaultMnemonic(extendedModifiers,
 				-1, getPriority(c), upperCaseBiased);
+	}
+	
+	protected void generateMenuItemMnemonics(JMenu menu) {
+		manager.setMenuItemMnemonicsFor(menu);
 	}
 	
 	public static void registerDialogMnemonicGenerator(JComponent c) {

@@ -5,13 +5,13 @@ import java.util.EventObject;
 import javax.swing.event.TableModelEvent;
 import javax.swing.tree.TreePath;
 
-import aephyr.swing.treetable.RowModel;
+import aephyr.swing.treetable.TreeColumnModel;
 
-public class RowModelEvent extends EventObject {
+public class TreeColumnModelEvent extends EventObject {
 
 	public static final int ALL_COLUMNS = TableModelEvent.ALL_COLUMNS;
 	
-	public RowModelEvent(RowModel source, TreePath path, int column) {
+	public TreeColumnModelEvent(TreeColumnModel source, TreePath path, int column) {
 		super(source);
 		this.path = path;
 		this.column = column;

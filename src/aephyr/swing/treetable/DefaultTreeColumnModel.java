@@ -1,26 +1,33 @@
 package aephyr.swing.treetable;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
 
-import aephyr.swing.treetable.AbstractRowModel;
+import aephyr.swing.treetable.AbstractTreeColumnModel;
 import aephyr.swing.treetable.MutableTreeTableNode;
 import aephyr.swing.treetable.TreeTableNode;
 
-public class DefaultRowModel extends AbstractRowModel {
+public class DefaultTreeColumnModel extends AbstractTreeColumnModel {
 	
-	public DefaultRowModel(int columns) {
+	public DefaultTreeColumnModel(int columns) {
 		this(null, columns);
 	}
 	
-	public DefaultRowModel(TreeTableNode root, int columns) {
-		this(root, Collections.nCopies(columns, null));
+	public DefaultTreeColumnModel(TreeTableNode root) {
+		this(root, Collections.nCopies(root.getColumnCount(), null));
 	}
 	
-	public DefaultRowModel(TreeTableNode root, List<?> columnNames) {
+	public DefaultTreeColumnModel(TreeTableNode root, Object ... columnNames) {
+		this(root, Arrays.asList(columnNames));
+	}
+	
+	public DefaultTreeColumnModel(TreeTableNode root, List<?> columnNames) {
 		this.root = root;
 		this.columnNames = columnNames;
 	}
@@ -64,7 +71,8 @@ public class DefaultRowModel extends AbstractRowModel {
 	
 	@Override
 	public void setValueAt(Object value, Object node, int column) {
-		((MutableTreeTableNode)node).setValueAt(value, column);
+		((MutableTreeTableNode)node).setValueAt(
+				convertValue(value, node, column), column);
 		fireRowChanged(pathToRoot((TreeNode)node), column);
 	}
 	
@@ -73,7 +81,11 @@ public class DefaultRowModel extends AbstractRowModel {
 		return (editableColumns & (1 << column)) != 0;
 	}
 	
-	public void setEditable(int column, boolean editable) {
+	public void setAllColumnsEditable(boolean editable) {
+		editableColumns = editable ? -1 : 0;
+	}
+	
+	public void setColumnEditable(int column, boolean editable) {
 		if (column > 32)
 			throw new IllegalArgumentException();
 		if (editable) {
