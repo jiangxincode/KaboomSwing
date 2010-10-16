@@ -73,7 +73,7 @@ public class DefaultTreeColumnModel extends AbstractTreeColumnModel {
 	public void setValueAt(Object value, Object node, int column) {
 		((MutableTreeTableNode)node).setValueAt(
 				convertValue(value, node, column), column);
-		fireRowChanged(pathToRoot((TreeNode)node), column);
+		fireRowChanged(pathToRoot(root, (TreeNode)node), column);
 	}
 	
 	@Override
@@ -104,9 +104,4 @@ public class DefaultTreeColumnModel extends AbstractTreeColumnModel {
 		hierarchialColumn = column;
 	}
 
-	public TreePath pathToRoot(TreeNode node) {
-		if (node == root)
-			return new TreePath(node);
-		return pathToRoot(node.getParent()).pathByAddingChild(node);
-	}
 }

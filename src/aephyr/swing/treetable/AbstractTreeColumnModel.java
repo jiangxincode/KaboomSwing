@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 
 import javax.swing.event.EventListenerList;
+import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
 
 import aephyr.swing.treetable.TreeColumnModel;
@@ -33,41 +34,11 @@ public abstract class AbstractTreeColumnModel implements TreeColumnModel {
 	public void setValueAt(Object value, Object node, int column) {}
 	
 	protected Object convertValue(Object value, Object node, int column) {
-		Class<?> cls = getColumnClass(column);
-		// short-circuit String columns
-		if (cls == Object.class || cls == String.class)
-			return value;
-		if (cls == Boolean.class) {
-			if (value instanceof Boolean)
-				return value;
-			return value == null ? Boolean.FALSE :
-					Boolean.valueOf(value.toString());
-		} else if (Number.class.isAssignableFrom(cls)) {
-			if (value instanceof String) {
-				try {
-					if (cls == Integer.class) {
-						value = Integer.valueOf((String)value);
-					} else if (cls == Long.class) {
-						value = Long.valueOf((String)value);
-					} else if (cls == Float.class) {
-						value = Float.valueOf((String)value);
-					} else if (cls == Double.class) {
-						value = Double.valueOf((String)value);
-					} else if (cls == BigInteger.class) {
-						return new BigInteger((String)value);
-					} else if (cls == BigDecimal.class) {
-						return new BigDecimal((String)value);
-					} else if (cls == Short.class) {
-						value = Short.valueOf((String)value);
-					} else if (cls == Byte.class) {
-						value = Byte.valueOf((String)value);
-					}
-				} catch (NumberFormatException e) {
-					return convertValue(value, node, column, e);
-				}
-			}
+		try {
+			return convertValue(value, getColumnClass(column));
+		} catch (NumberFormatException e) {
+			return convertValue(value, node, column, e);
 		}
-		return value;
 	}
 	
 	protected Object convertValue(Object value, Object node, int column,
@@ -111,5 +82,48 @@ public abstract class AbstractTreeColumnModel implements TreeColumnModel {
 			}
 		}
 	}
+	
+	
+	public static TreePath pathToRoot(Object root, TreeNode node) {
+		if (node == root)
+			return new TreePath(node);
+		return pathToRoot(root, node.getParent()).pathByAddingChild(node);
+	}
+	
+	public static Object convertValue(Object value, Class<?> cls)
+			throws NumberFormatException {
+		// short-circuit String columns
+		if (cls == Object.class || cls == String.class)
+			return value;
+		if (cls == Boolean.class) {
+			if (value instanceof Boolean)
+				return value;
+			return value == null ? Boolean.FALSE :
+					Boolean.valueOf(value.toString());
+		} else if (Number.class.isAssignableFrom(cls)) {
+			if (value instanceof String) {
+				if (cls == Integer.class) {
+					value = Integer.valueOf((String)value);
+				} else if (cls == Long.class) {
+					value = Long.valueOf((String)value);
+				} else if (cls == Float.class) {
+					value = Float.valueOf((String)value);
+				} else if (cls == Double.class) {
+					value = Double.valueOf((String)value);
+				} else if (cls == BigInteger.class) {
+					return new BigInteger((String)value);
+				} else if (cls == BigDecimal.class) {
+					return new BigDecimal((String)value);
+				} else if (cls == Short.class) {
+					value = Short.valueOf((String)value);
+				} else if (cls == Byte.class) {
+					value = Byte.valueOf((String)value);
+				}
+			}
+		}
+		return value;
+	}
+	
+
 
 }

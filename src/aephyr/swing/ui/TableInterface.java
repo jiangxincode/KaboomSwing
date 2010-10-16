@@ -87,7 +87,9 @@ public interface TableInterface extends Scrollable {
 	
 	public Rectangle getCellRect(int row, int col, boolean includeSpacing);
 	
+	public void setRowHeight(int height);
 	
+	public void setRowHeight(int row, int height);
 	
 	public void doLayout();
 	

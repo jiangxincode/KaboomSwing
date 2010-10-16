@@ -5,6 +5,8 @@ import javax.swing.tree.TreePath;
 
 import aephyr.swing.TreeTable;
 import aephyr.swing.treetable.DefaultTreeTableCellRenderer;
+import aephyr.swing.treetable.TreeTableCellEditor;
+import aephyr.swing.treetable.TreeTableCellRenderer;
 
 public abstract class TreeTableUI extends ComponentUI {
 	
@@ -12,8 +14,6 @@ public abstract class TreeTableUI extends ComponentUI {
 	
 	public abstract TableInterface getTableInterface(TreeTable treeTable);
 
-	public abstract void invalidatePathBounds(TreeTable treeTable, TreePath path);
-	
 	public abstract void configureCellRenderer(
 			DefaultTreeTableCellRenderer renderer, TreeTable treeTable,
 			Object value, boolean selected, boolean hasFocus,
@@ -25,4 +25,7 @@ public abstract class TreeTableUI extends ComponentUI {
 			Object value, boolean selected, boolean hasFocus,
 			int row, int column, boolean expanded, boolean leaf);
 	
+	public abstract TreeTableCellRenderer getDefaultRenderer(Class<?> columnClass);
+
+	public abstract TreeTableCellEditor getDefaultEditor(Class<?> columnClass);
 }

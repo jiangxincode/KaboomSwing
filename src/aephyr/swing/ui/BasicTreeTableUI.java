@@ -16,10 +16,10 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.awt.event.MouseMotionListener;
+import java.awt.geom.Rectangle2D;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.Collections;
-import java.util.Enumeration;
 import java.util.EventObject;
 import java.util.List;
 
@@ -40,8 +40,6 @@ import javax.swing.event.CellEditorListener;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.TableColumnModelEvent;
 import javax.swing.event.TableModelEvent;
-import javax.swing.event.TreeModelEvent;
-import javax.swing.event.TreeModelListener;
 import javax.swing.plaf.TreeUI;
 import javax.swing.plaf.UIResource;
 import javax.swing.plaf.basic.BasicTreeUI;
@@ -82,7 +80,6 @@ public class BasicTreeTableUI extends TreeTableUI {
 		installDefaults();
 		installComponents();
 		installListeners();
-
 	}
 	
 	@Override
@@ -105,6 +102,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 	}
 	
 	protected void installComponents() {
+		handler = createHandler();
 		treeTableCellRenderer = createCellRenderer();
 		treeTableCellEditor = createCellEditor();
 		TreeTableCellRenderer focusRenderer = treeTable.getFocusRenderer();
@@ -172,6 +170,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 					treeTable.removePropertyChangeListener(
 							name, propertyChangeListener);
 			}
+			properties = null;
 			propertyChangeListener = null;
 		}
 	}
@@ -188,9 +187,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 	
 	protected TreeCellRenderer defaultTreeCellRenderer;
 	
-	private TreeModelListener[] uiTreeModelListeners;
-	
-	private Handler handler;
+	protected Handler handler;
 	
 	private KeyListener keyListener;
 	
@@ -218,10 +215,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 
 	
 	protected JTree createAndConfigureTree() {
-		DefaultTreeModel m = new DefaultTreeModel(null);
-		JTree tree = (JTree)createTree(m);
-		uiTreeModelListeners = m.getTreeModelListeners();
-		tree.setModel(treeTable.getTreeModel());
+		JTree tree = createTree(treeTable.getTreeTableModel());
 		if (treeTable.getSelectionModel() == null) {
 			treeTable.setSelectionModel(tree.getSelectionModel());
 		} else {
@@ -260,7 +254,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 					code, InputEvent.ALT_DOWN_MASK), key);
 	}
 	
-	protected JTree createTree(DefaultTreeModel tm) {
+	protected JTree createTree(TreeModel tm) {
 		return new Tree(tm);
 	}
 	
@@ -289,7 +283,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 	
 	protected JTable createAndConfigureTable() {
 		TableColumnModel cm = treeTable.getColumnModel();
-		JTable table = (JTable)createTable(treeTable.getTableModel(),
+		JTable table = createTable(treeTable.getTreeTableModel(),
 				cm, treeTable.getRowSelectionModel());
 		table.setShowHorizontalLines(false);
 		table.setRowHeight(20);
@@ -310,15 +304,15 @@ public class BasicTreeTableUI extends TreeTableUI {
 	}
 	
 	protected KeyListener createKeyListener() {
-		return getHandler();
+		return handler;
 	}
 	
 	protected MouseListener createMouseListener() {
-		return getHandler();
+		return handler;
 	}
 	
 	protected MouseMotionListener createMouseMotionListener() {
-		return getHandler();
+		return handler;
 	}
 	
 	/**
@@ -337,12 +331,6 @@ public class BasicTreeTableUI extends TreeTableUI {
 	}
 	
 	protected PropertyChangeListener createPropertyChangeListener() {
-		return getHandler();
-	}
-	
-	protected final Handler getHandler() {
-		if (handler == null)
-			handler = createHandler();
 		return handler;
 	}
 	
@@ -477,15 +465,15 @@ public class BasicTreeTableUI extends TreeTableUI {
 					treeTable, "", false, true, row, lead);
 			c.setBounds(0, 0, r.width, r.height);
 			Graphics cg = g.create(r.x, r.y, r.width, r.height);
-			if (clipR != null) {
-				// clipR is actually the inverse of the "clip"
-				if (clipR.x == 0) {
-					cg.setClip(clipR.width, 0, r.width, r.height);
-				} else {
-					cg.setClip(0, 0, clipR.x, r.height);
-				}
-			}
 			try {
+				if (clipR != null) {
+					// clipR is actually the inverse of the "clip"
+					if (clipR.x == 0) {
+						cg.setClip(clipR.width, 0, r.width, r.height);
+					} else {
+						cg.setClip(0, 0, clipR.x, r.height);
+					}
+				}
 				c.paint(cg);
 			} finally {
 				cg.dispose();
@@ -560,62 +548,8 @@ public class BasicTreeTableUI extends TreeTableUI {
 		}
 	}
 
-
 	
 	
-	
-	@Override
-	public void invalidatePathBounds(TreeTable treeTable, TreePath path) {
-		int[] children;
-		Object[] childNodes;
-		if (path.getParentPath() == null) {
-			children = null;
-			childNodes = null;
-		} else {
-			Object node = path.getLastPathComponent();
-			path = path.getParentPath();
-			Object parentNode = path.getLastPathComponent();
-			int index = tree.getModel().getIndexOfChild(
-					parentNode, node);
-			children = new int[] { index };
-			childNodes = new Object[] { node };
-		}
-		fireTreeNodesChanged(path, children, childNodes);
-		int row = tree.getRowForPath(path);
-		updateTableRowHeights(row, row+1);
-	}
-	
-	protected void invalidateAllPathBounds() {
-		TreeModel model = tree.getModel();
-		TreePath root = new TreePath(model.getRoot());
-		if (tree.isRootVisible())
-			fireTreeNodesChanged(root, null, null);
-		Enumeration<TreePath> paths = tree.getExpandedDescendants(root);
-		while (paths.hasMoreElements()) {
-			TreePath path = paths.nextElement();
-			Object parent = path.getLastPathComponent();
-			int count = model.getChildCount(parent);
-			if (count > 0) {
-				int[] children = new int[count];
-				Object[] childNodes = new Object[count];
-				for (int i=count; --i>=0;) {
-					children[i] = i;
-					childNodes[i] = model.getChild(parent, i);
-				}
-				fireTreeNodesChanged(path, children, childNodes);
-			}
-		}
-	}
-	
-	private void fireTreeNodesChanged(TreePath path, int[] children, Object[] childNodes) {
-		TreeModelEvent e = new TreeModelEvent(
-				tree.getModel(), path, children, childNodes);
-		for (TreeModelListener l : uiTreeModelListeners)
-			l.treeNodesChanged(e);
-	}
-	
-	
-
 	
 	
 	@Override
@@ -636,44 +570,30 @@ public class BasicTreeTableUI extends TreeTableUI {
 	}
 	
 	
+	@Override
+	public TreeTableCellRenderer getDefaultRenderer(Class<?> columnClass) {
+		return treeTableCellRenderer;
+	}
+	
+	@Override
+	public TreeTableCellEditor getDefaultEditor(Class<?> columnClass) {
+		return treeTableCellEditor;
+	}
+	
+	
+	
 	/**
-	 * @param path expanded or collapsed path
+ 	 * @param path expanded or collapsed path
 	 * @param interval number of rows to add or remove
 	 */
 	protected void updateTableAfterExpansion(TreePath path, int interval) {
 		if (interval < 0) {
-			treeTable.processTreeCollapse(tree.getRowForPath(path), interval);
+			treeTable.processTreeCollapse(tree.getRowForPath(path), -interval);
 		} else if (interval > 0) {
-			int row = tree.getRowForPath(path);
-			treeTable.processTreeExpansion(row, interval);
-			if (tree.getRowHeight() <= 0)
-				updateTableRowHeights(row+1, row+interval+1);
+			treeTable.processTreeExpansion(tree.getRowForPath(path), interval);
 		}
 	}
 
-	/**
-	 * For variable row heights, sync table row height to 
-	 * corresponding tree row height.
-	 */
-	protected void updateTableRowHeights() {
-		updateTableRowHeights(0, tree.getRowCount());
-	}
-	
-	/**
-	 * Sync table row heights to corresponding tree row height
-	 * for rows <code>fromRow</code> (inclusive) to
-	 * <code>toRow</code> exclusive.
-	 * 
-	 * @param fromRow 
-	 * @param toRow 
-	 */
-	protected void updateTableRowHeights(int fromRow, int toRow) {
-		assert (tree.getRowHeight() <= 0);
-		JTable table = this.table;
-		JTree tree = this.tree;
-		for (int row=toRow; --row>=fromRow;)
-			table.setRowHeight(row, tree.getRowBounds(row).height);
-	}
 	
 	
 	protected void scrollToVisible(Rectangle r, int x, int y) {
@@ -718,6 +638,13 @@ public class BasicTreeTableUI extends TreeTableUI {
 			return false;
 		}
 		
+		public void computeVisibleRect(Rectangle visibleRect) {
+			treeTable.computeVisibleRect(visibleRect);
+			Rectangle2D.intersect(visibleRect, getBounds(), visibleRect);
+			visibleRect.x -= getX();
+			visibleRect.y -= getY();
+		}
+		
 		public void repaint(long tm, int x, int y, int width, int height) {
 			treeTable.repaint(tm, x+getX(), y+getY(), width, height);
 		}
@@ -741,25 +668,20 @@ public class BasicTreeTableUI extends TreeTableUI {
 		
 		@Override
 		protected void setExpandedState(TreePath path, boolean state) {
+//			if (isExpanded(path) == state)
+//				return;
+			TreePath updatePath = path;
+			if (state) {
+				for (;;) {
+					TreePath par = updatePath.getParentPath();
+					if (par == null || isExpanded(par))
+						break;
+					updatePath = par;
+				}
+			}
 			int rowCount = getRowCount();
 			super.setExpandedState(path, state);
-			updateTableAfterExpansion(path, getRowCount() - rowCount);
-		}
-		
-		
-		@Override
-		public void setRowHeight(int rowHeight) {
-			if (tree == null) {
-				// constructor specialty
-				super.setRowHeight(rowHeight);
-			} else {
-				int oldRowHeight = getRowHeight();
-				if (rowHeight > 0)
-					table.setRowHeight(rowHeight);
-				super.setRowHeight(rowHeight);
-				if (rowHeight <= 0 && oldRowHeight > 0)
-					updateTableRowHeights();
-			}
+			updateTableAfterExpansion(updatePath, getRowCount() - rowCount);
 		}
 		
 		@Override
@@ -772,6 +694,16 @@ public class BasicTreeTableUI extends TreeTableUI {
 				treeHandleWidth = -1;
 			}
 		}
+		
+//		@Override
+//		protected void addImpl(Component c, Object co, int idx) {
+//			treeTable.add(c, co, idx);
+//		}
+//		
+//		@Override
+//		public void remove(Component c) {
+//			treeTable.remove(c);
+//		}
 		
 	}
 	
@@ -808,6 +740,10 @@ public class BasicTreeTableUI extends TreeTableUI {
 		
 		public Container getParent() {
 			return treeTable.getParent();
+		}
+		
+		public void computeVisibleRect(Rectangle visibleRect) {
+			treeTable.computeVisibleRect(visibleRect);
 		}
 		
 		public void repaint(long tm, int x, int y, int width, int height) {
@@ -850,7 +786,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 		}
 		
 		
-		public void addImpl(Component comp, Object constraints, int index) {
+		protected void addImpl(Component comp, Object constraints, int index) {
 			if (comp instanceof CellRendererPane) {
 				super.addImpl(comp, constraints, index);
 			} else {
@@ -895,20 +831,16 @@ public class BasicTreeTableUI extends TreeTableUI {
 			if (table == null) { // constructor specialty
 				if (getAutoCreateColumnsFromModel())
 					createDefaultColumnsFromModel();
-				return;
+			} else {
+				super.tableChanged(e);
 			}
-			super.tableChanged(e);
-			if (treeTable.getRowHeight() <= 0 &&
-					(e == null || e.getFirstRow() == TableModelEvent.HEADER_ROW
-							|| e.getLastRow() == Integer.MAX_VALUE))
-				updateTableRowHeights();
 		}
 		
 		
 		public void columnAdded(TableColumnModelEvent e) {
 			super.columnAdded(e);
 			if (tree.getRowHeight() <= 0)
-				invalidateAllPathBounds();
+				treeTable.invalidateAllRows();
 		}
 		
 		public void columnMoved(TableColumnModelEvent e) {
@@ -920,7 +852,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 		public void columnRemoved(TableColumnModelEvent e) {
 			super.columnRemoved(e);
 			if (tree.getRowHeight() <= 0)
-				invalidateAllPathBounds();
+				treeTable.invalidateAllRows();
 		}
 		
 		public void createDefaultColumnsFromModel() {
@@ -968,8 +900,8 @@ public class BasicTreeTableUI extends TreeTableUI {
 	
 	
 	
-	protected class Renderer extends CellRendererPane
-			implements TreeCellRenderer, TableCellRenderer {
+	protected class Renderer extends CellRendererPane implements
+			TreeCellRenderer, TableCellRenderer, TreeTableCellRenderer {
 
 		public Renderer() {}
 
@@ -999,7 +931,26 @@ public class BasicTreeTableUI extends TreeTableUI {
 		public void clearState() {
 			component = null;
 			node = null;
+			removeAll();
 		}
+		
+		@Override
+		public Component getTreeTableCellRendererComponent(TreeTable treeTable,
+				Object val, boolean sel, boolean foc, int row, int col) {
+			int modelColumn = treeTable.convertColumnIndexToModel(col);
+			TableCellRenderer r = table.getDefaultRenderer(
+					treeTable.getRowModel().getColumnClass(modelColumn));
+			return r.getTableCellRendererComponent(
+					table, val, sel, foc, row, col);
+		}
+		
+		@Override
+		public Component getTreeTableCellRendererComponent(TreeTable treeTable,
+				Object val, boolean sel, boolean foc, int row, int col, boolean exp, boolean leaf) {
+			return defaultTreeCellRenderer.getTreeCellRendererComponent(
+					tree, val, sel, exp, leaf, row, foc);
+		}
+				
 
 		@Override
 		public Component getTableCellRendererComponent(JTable table,
@@ -1012,18 +963,8 @@ public class BasicTreeTableUI extends TreeTableUI {
 
 		private Component getTableComponent(JTable table, Object val,
 				boolean sel, boolean foc, int row, int col) {
-			TreeTableCellRenderer cellRenderer = treeTable.getCellRenderer(row, col);
-			if (cellRenderer != null) {
-				return cellRenderer.getTreeTableCellRendererComponent(
-						treeTable, val, sel, foc, row, col);
-			} else {
-				int modelColumn = treeTable.convertColumnIndexToModel(col);
-				TableCellRenderer r = table.getDefaultRenderer(
-						treeTable.getRowModel().getColumnClass(modelColumn));
-				return r.getTableCellRendererComponent(
-						table, val, sel, foc, row, col);
-			}
-
+			return treeTable.getCellRenderer(row, col).getTreeTableCellRendererComponent(
+					treeTable, val, sel, foc, row, col);
 		}
 
 		@Override
@@ -1052,19 +993,13 @@ public class BasicTreeTableUI extends TreeTableUI {
 
 		private Component getTreeComponent(JTree tree, Object val, boolean sel,
 				boolean foc, int row, int col, boolean exp, boolean leaf) {
-			TreeTableCellRenderer cellRenderer = treeTable.getCellRenderer(row, treeColumn);
-			if (cellRenderer != null) {
-				return cellRenderer.getTreeTableCellRendererComponent(
-						treeTable, val, sel, foc, row, treeColumn, exp, leaf);
-			} else {
-				return defaultTreeCellRenderer.getTreeCellRendererComponent(
-						tree, val, sel, exp, leaf, row, foc);
-			}
+			return treeTable.getCellRenderer(row, col).getTreeTableCellRendererComponent(
+					treeTable, val, sel, foc, row, col, exp, leaf);
 		}
 
 		@Override
 		public Dimension getPreferredSize() {
-			if (tableColumn)
+			if (tableColumn || tree.getRowHeight() > 0)
 				return component.getPreferredSize();
 			int margin = treeTable.getRowMargin();
 			Dimension size;
@@ -1149,6 +1084,32 @@ public class BasicTreeTableUI extends TreeTableUI {
 			Container p = getParent();
 			return p != null ? p.isOpaque() : super.isOpaque();
 		}
+		
+		
+		@Override
+		public void repaint() {}
+		@Override
+		public void repaint(long tm, int x, int y, int w, int h) {}
+
+		@Override
+		protected void firePropertyChange(String propertyName, Object oldValue, Object newValue) {}
+		@Override
+		public void firePropertyChange(String propertyName, byte oldValue, byte newValue) {}
+		@Override
+		public void firePropertyChange(String propertyName, char oldValue, char newValue) {}
+		@Override
+		public void firePropertyChange(String propertyName, short oldValue, short newValue) {}
+		@Override
+		public void firePropertyChange(String propertyName, int oldValue, int newValue) {}
+		@Override
+		public void firePropertyChange(String propertyName, long oldValue, long newValue) {}
+		@Override
+		public void firePropertyChange(String propertyName, float oldValue, float newValue) {}
+		@Override
+		public void firePropertyChange(String propertyName, double oldValue, double newValue) {}
+		@Override
+		public void firePropertyChange(String propertyName, boolean oldValue, boolean newValue) {}
+
 	}
 	
 	
@@ -1158,7 +1119,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 		public TreeEditor() {
 			super(getTree(), (DefaultTreeCellRenderer)defaultTreeCellRenderer);
 		}
-
+		
 		@Override
 		public Component getTableCellEditorComponent(JTable table,
 				Object value, boolean selected, int row, int column) {
@@ -1170,6 +1131,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 		}
 		
 		public boolean isCellEditable(EventObject obj) {
+			// TODO ...
 			if (obj instanceof MouseEvent) {
 				MouseEvent e = (MouseEvent)obj;
 				return e.getClickCount() == 2;
@@ -1219,20 +1181,20 @@ public class BasicTreeTableUI extends TreeTableUI {
 
 	}
 	
-	protected class Editor extends AbstractCellEditor
-			implements TableCellEditor, CellEditorListener {
+	protected class Editor extends AbstractCellEditor implements
+			TableCellEditor, CellEditorListener, TreeTableCellEditor {
 
 		private TreeTableCellEditor treeTableEditor;
 		
 		private TableCellEditor tableEditor;
 		
-		private TableCellEditor defaultTreeEditor;
+		private TreeEditor defaultTreeEditor;
 		
 		private TreeEditorContainer treeEditorContainer;
 		
 		public void loadEditor(int row, int col) {
 			treeTableEditor = treeTable.getCellEditor(row, col);
-			if (treeTableEditor == null) {
+			if (treeTableEditor == this) {
 				if (col == treeTable.getHierarchialColumn()) {
 					if (defaultTreeEditor == null)
 						defaultTreeEditor = new TreeEditor();
@@ -1244,24 +1206,35 @@ public class BasicTreeTableUI extends TreeTableUI {
 		}
 		
 		@Override
+		public Component getTreeTableCellEditorComponent(TreeTable treeTable,
+				Object val, boolean sel, int row, int col) {
+			return tableEditor.getTableCellEditorComponent(
+					table, val, sel, row, col);
+		}
+		
+		@Override
+		public Component getTreeTableCellEditorComponent(TreeTable treeTable,
+				Object val, boolean sel, int row, int col, boolean exp, boolean leaf) {
+			return defaultTreeEditor.getTreeCellEditorComponent(
+					tree, val, sel, exp, leaf, row);
+		}
+
+
+		
+		@Override
 		public Component getTableCellEditorComponent(JTable table,
 				Object value, boolean isSelected, int row, int column) {
 			Component c;
 			boolean treeColumn = column == treeTable.getHierarchialColumn();
-			if (treeTableEditor != null) {
-				if (treeColumn) {
-					TreePath path = tree.getPathForRow(row);
-					boolean expanded = tree.isExpanded(path);
-					boolean leaf = tree.getModel().isLeaf(path.getLastPathComponent());
-					c = treeTableEditor.getTreeTableCellEditorComponent(
-							treeTable, value, isSelected, row, column, expanded, leaf);	
-				} else {
-					c = treeTableEditor.getTreeTableCellEditorComponent(
-							treeTable, value, isSelected, row, column);
-				}
+			if (treeColumn) {
+				TreePath path = tree.getPathForRow(row);
+				boolean expanded = tree.isExpanded(path);
+				boolean leaf = tree.getModel().isLeaf(path.getLastPathComponent());
+				c = treeTableEditor.getTreeTableCellEditorComponent(
+						treeTable, value, isSelected, row, column, expanded, leaf);	
 			} else {
-				c = tableEditor.getTableCellEditorComponent(
-						table, value, isSelected, row, column);
+				c = treeTableEditor.getTreeTableCellEditorComponent(
+						treeTable, value, isSelected, row, column);
 			}
 			if (treeColumn) {
 				if (treeEditorContainer == null)
@@ -1274,7 +1247,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 		}
 		
 		private CellEditor getEditor() {
-			return treeTableEditor != null ? treeTableEditor : tableEditor;
+			return tableEditor != null ? tableEditor : treeTableEditor;
 		}
 
 		@Override
@@ -1315,7 +1288,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 		}
 		
 		public void clearState() {
-			if (treeTableEditor != null || tableEditor != null) {
+			if (treeTableEditor != null) {
 				getEditor().removeCellEditorListener(this);
 				treeTableEditor = null;
 				tableEditor = null;
@@ -1374,6 +1347,9 @@ public class BasicTreeTableUI extends TreeTableUI {
 	
 	protected class Handler extends MouseAdapter
 			implements KeyListener, PropertyChangeListener {
+		
+		public Handler() {
+		}
 
 		@Override
 		public void keyPressed(KeyEvent e) {
@@ -1437,7 +1413,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 			case KeyEvent.VK_PAGE_DOWN: case KeyEvent.VK_PAGE_UP:
 				return false;
 			case KeyEvent.VK_LEFT: case KeyEvent.VK_RIGHT:
-				return treeTable.isColumnFocusEnabled() &&
+				return (treeTable.isColumnFocusEnabled() || treeTable.getColumnSelectionAllowed()) &&
 						table.getColumnModel().getColumnCount() > 1;
 			}
 			return true;
@@ -1527,7 +1503,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 				tree.putClientProperty("JTree.lineStyle", evt.getNewValue());
 			}
 		}
-
+		
 		
 	}
 }

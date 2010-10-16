@@ -48,24 +48,15 @@ public class DefaultTreeTableCellRenderer extends DefaultTableCellRenderer
 	}
 	
 	protected Icon getLeafIcon() {
-		Icon icon = treeTable.getLeafIcon();
-		if (icon == null)
-			icon = UIManager.getIcon("Tree.leafIcon");
-		return icon;
+		return treeTable.getLeafIcon();
 	}
 	
-	private Icon getOpenIcon() {
-		Icon icon = treeTable.getOpenIcon();
-		if (icon == null)
-			icon = UIManager.getIcon("Tree.openIcon");
-		return icon;
+	protected Icon getOpenIcon() {
+		return treeTable.getOpenIcon();
 	}
 	
-	private Icon getClosedIcon() {
-		Icon icon = treeTable.getClosedIcon();
-		if (icon == null)
-			icon = UIManager.getIcon("Tree.closedIcon");
-		return icon;
+	protected Icon getClosedIcon() {
+		return treeTable.getClosedIcon();
 	}
 	
 	private Color getTextSelectionColor() {
@@ -105,19 +96,15 @@ public class DefaultTreeTableCellRenderer extends DefaultTableCellRenderer
 			boolean selected, boolean expanded, boolean leaf, int row,
 			boolean hasFocus) {
 		if (tree != null) {
-
-			Color fg = null;
-			Color bg = null;
-
+			setOpaque(false);
+			
+			Color fg;
 			if (selected) {
 				fg = getTextSelectionColor();
-				bg = getBackgroundSelectionColor();
 			} else {
 				fg = getTextNonSelectionColor();
-				bg = getBackgroundNonSelectionColor();
 			}
 			setForeground(fg);
-			setBackground(bg);
 
 			if (!tree.isEnabled()) {
 				setEnabled(false);
@@ -142,6 +129,7 @@ public class DefaultTreeTableCellRenderer extends DefaultTableCellRenderer
 			setComponentOrientation(tree.getComponentOrientation());
 			setBorder(getComponentOrientation().isLeftToRight() ?
 					getLTRBorder() : getRTLBorder());
+			setFont(treeTable.getFont());
 		}
 		setValue(value);
 		return this;
@@ -152,6 +140,7 @@ public class DefaultTreeTableCellRenderer extends DefaultTableCellRenderer
 			Object value, boolean isSelected, boolean hasFocus,
 			int row, int column) {
 		if (table != null) {
+			setOpaque(true);
 			setIcon(null);
 			setDisabledIcon(null);
 			super.getTableCellRendererComponent(
