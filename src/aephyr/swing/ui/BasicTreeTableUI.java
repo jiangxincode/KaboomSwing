@@ -34,10 +34,12 @@ import javax.swing.JTree;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.LookAndFeel;
+import javax.swing.RowSorter;
 import javax.swing.UIDefaults;
 import javax.swing.UIManager;
 import javax.swing.event.CellEditorListener;
 import javax.swing.event.ChangeEvent;
+import javax.swing.event.RowSorterListener;
 import javax.swing.event.TableColumnModelEvent;
 import javax.swing.event.TableModelEvent;
 import javax.swing.plaf.TreeUI;
@@ -95,6 +97,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 	protected void installDefaults() {
 		LookAndFeel.installColorsAndFont(treeTable,
 				"Table.background", "Table.foreground", "Table.font");
+		
 	}
 	
 	protected void uninstallDefaults() {
@@ -113,6 +116,9 @@ public class BasicTreeTableUI extends TreeTableUI {
 		
 		defaultTreeCellRenderer = tree.getCellRenderer();
 		tree.setCellRenderer(treeTableCellRenderer);
+		
+		if (treeTable.getRowSorter() != null)
+			table.setRowSorter(new RowSorterAdapter());
 	}
 	
 	protected void uninstallComponents() {
@@ -147,7 +153,6 @@ public class BasicTreeTableUI extends TreeTableUI {
 		
 	}
 	
-
 	
 	protected void uninstallListeners() {
 		if (keyListener != null) {
@@ -263,22 +268,8 @@ public class BasicTreeTableUI extends TreeTableUI {
 		tree.setModel(new DefaultTreeModel(null));
 		tree.setSelectionModel(new DefaultTreeSelectionModel());
 		tree.setUI(null);
-		
-		
-		final java.lang.ref.ReferenceQueue<JTree> que = new java.lang.ref.ReferenceQueue<JTree>();
-		new java.lang.ref.WeakReference<JTree>(tree, que);
-		System.out.println("starting refererence check thread");
-		new Thread(new Runnable() {
-			public void run() {
-				try {
-					que.remove();
-					System.out.println("tree trashed");
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-			}
-		}).start();
 	}
+	
 	
 	
 	protected JTable createAndConfigureTable() {
@@ -286,6 +277,13 @@ public class BasicTreeTableUI extends TreeTableUI {
 		JTable table = createTable(treeTable.getTreeTableModel(),
 				cm, treeTable.getRowSelectionModel());
 		table.setShowHorizontalLines(false);
+		table.setRowMargin(0);
+		if (cm == null) {
+			cm = table.getColumnModel();
+			cm.setColumnMargin(0);
+		}
+		if (cm.getColumnMargin() == 0)
+			table.setShowVerticalLines(false);
 		table.setRowHeight(20);
 		return table;
 	}
@@ -326,8 +324,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 	 * @return properties to listen to.
 	 */
 	protected List<String> getProperties() {
-		return java.util.Arrays.asList("componentOrientation", "enabled", "JTree.lineStyle");
-//		return Collections.singletonList("componentOrientation");
+		return java.util.Arrays.asList("componentOrientation", "enabled", "rowSorter", "JTree.lineStyle");
 	}
 	
 	protected PropertyChangeListener createPropertyChangeListener() {
@@ -401,7 +398,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 		if (header != null) {
 			TableColumn dc = header.getDraggedColumn();
 			if (dc != null) {
-				if (dc.getModelIndex() == treeTable.getRowModel().getHierarchialColumn()) {
+				if (dc.getModelIndex() == treeTable.getTreeColumnModel().getHierarchialColumn()) {
 					// shift x distance for painting tree
 					x += header.getDraggedDistance();
 				} else {
@@ -448,7 +445,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 			if (header != null) {
 				TableColumn dc = header.getDraggedColumn();
 				if (dc != null && header.getDraggedDistance() != 0) {
-					if (dc.getModelIndex() == treeTable.getRowModel().getHierarchialColumn()) {
+					if (dc.getModelIndex() == treeTable.getTreeColumnModel().getHierarchialColumn()) {
 						r.x += header.getDraggedDistance();
 					} else {
 						int col = table.convertColumnIndexToView(dc.getModelIndex());
@@ -588,9 +585,9 @@ public class BasicTreeTableUI extends TreeTableUI {
 	 */
 	protected void updateTableAfterExpansion(TreePath path, int interval) {
 		if (interval < 0) {
-			treeTable.processTreeCollapse(tree.getRowForPath(path), -interval);
+			treeTable.processTreeCollapse(path, -interval);
 		} else if (interval > 0) {
-			treeTable.processTreeExpansion(tree.getRowForPath(path), interval);
+			treeTable.processTreeExpansion(path, interval);
 		}
 	}
 
@@ -694,16 +691,6 @@ public class BasicTreeTableUI extends TreeTableUI {
 				treeHandleWidth = -1;
 			}
 		}
-		
-//		@Override
-//		protected void addImpl(Component c, Object co, int idx) {
-//			treeTable.add(c, co, idx);
-//		}
-//		
-//		@Override
-//		public void remove(Component c) {
-//			treeTable.remove(c);
-//		}
 		
 	}
 	
@@ -869,6 +856,19 @@ public class BasicTreeTableUI extends TreeTableUI {
 			}
 		}
 		
+		// bypass JTable's SortManager
+		private RowSorter<? extends TableModel> rowSorter;
+		
+		public RowSorter<? extends TableModel> getRowSorter() {
+			return rowSorter;
+		}
+		
+		public void setRowSorter(RowSorter<? extends TableModel> rowSorter) {
+			RowSorter<?> oldValue = getRowSorter();
+			this.rowSorter = rowSorter;
+			firePropertyChange("rowSorter", oldValue, rowSorter);
+		}
+		
 	}
 
 	/**
@@ -896,6 +896,75 @@ public class BasicTreeTableUI extends TreeTableUI {
 				throw new IllegalArgumentException("editor must implement TreeTableCellEditor");
 			super.setCellEditor(editor);
 		}
+	}
+	
+	private class RowSorterAdapter extends RowSorter<TableModel> {
+		
+		@Override
+		public int convertRowIndexToModel(int index) {
+			return index;
+		}
+
+		@Override
+		public int convertRowIndexToView(int index) {
+			return index;
+		}
+
+		@Override
+		public TableModel getModel() {
+			return getTable().getModel();
+		}
+
+		@Override
+		public int getModelRowCount() {
+			return getModel().getRowCount();
+		}
+		
+		@Override
+		public int getViewRowCount() {
+			return getModelRowCount();
+		}
+
+
+		@Override
+		public List<? extends SortKey> getSortKeys() {
+			return treeTable.getRowSorter().getSortKeys();
+		}
+
+		@Override
+		public void setSortKeys(List<? extends SortKey> keys) {
+			treeTable.getRowSorter().setSortKeys(keys);
+		}
+
+		@Override
+		public void toggleSortOrder(int column) {
+			treeTable.getRowSorter().toggleSortOrder(column);
+		}
+
+		@Override
+		public void allRowsChanged() {}
+
+		@Override
+		public void modelStructureChanged() {}
+
+		@Override
+		public void rowsDeleted(int firstRow, int endRow) {}
+
+		@Override
+		public void rowsInserted(int firstRow, int endRow) {}
+
+		@Override
+		public void rowsUpdated(int firstRow, int endRow) {}
+
+		@Override
+		public void rowsUpdated(int firstRow, int endRow, int column) {}
+		
+		@Override
+		public void addRowSorterListener(RowSorterListener l) {}
+
+		@Override
+		public void removeRowSorterListener(RowSorterListener l) {}
+
 	}
 	
 	
@@ -939,7 +1008,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 				Object val, boolean sel, boolean foc, int row, int col) {
 			int modelColumn = treeTable.convertColumnIndexToModel(col);
 			TableCellRenderer r = table.getDefaultRenderer(
-					treeTable.getRowModel().getColumnClass(modelColumn));
+					treeTable.getTreeColumnModel().getColumnClass(modelColumn));
 			return r.getTableCellRendererComponent(
 					table, val, sel, foc, row, col);
 		}
@@ -984,7 +1053,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 			//  L&F's so use focusRenderer to paint tree's focus same as table.
 			foc = false;
 
-			TreeColumnModel model = treeTable.getRowModel();
+			TreeColumnModel model = treeTable.getTreeColumnModel();
 			val = model.getValueAt(val, model.getHierarchialColumn());
 			component = getTreeComponent(tree, val,
 					sel, foc, row, treeColumn, exp, leaf);
@@ -1012,7 +1081,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 			}
 			JTable tbl = table;
 			TableColumnModel cm = tbl.getColumnModel();
-			TreeColumnModel rm = treeTable.getRowModel();
+			TreeColumnModel rm = treeTable.getTreeColumnModel();
 			Object nod = node;
 			// TODO (TBD) use row -1 because this can be called
 			// before the row is valid in the table?
@@ -1489,7 +1558,9 @@ public class BasicTreeTableUI extends TreeTableUI {
 		@Override
 		public void propertyChange(PropertyChangeEvent evt) {
 			String name = evt.getPropertyName();
-			if (name == "enabled") {
+			if (name == "rowSorter") {
+				table.setRowSorter(evt.getNewValue() == null ? null : new RowSorterAdapter());
+			} else if (name == "enabled") {
 				boolean enabled = (Boolean)evt.getNewValue();
 				table.setEnabled(enabled);
 				tree.setEnabled(enabled);

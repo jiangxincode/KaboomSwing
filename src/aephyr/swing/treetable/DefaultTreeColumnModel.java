@@ -1,13 +1,10 @@
 package aephyr.swing.treetable;
 
-import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 import javax.swing.tree.TreeNode;
-import javax.swing.tree.TreePath;
 
 import aephyr.swing.treetable.AbstractTreeColumnModel;
 import aephyr.swing.treetable.MutableTreeTableNode;
