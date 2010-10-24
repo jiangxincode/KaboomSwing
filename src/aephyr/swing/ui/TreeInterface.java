@@ -31,6 +31,8 @@ public interface TreeInterface extends Scrollable {
 
 	public Rectangle getPathBounds(TreePath path);
 
+	public TreePath getClosestPathForLocation(int x, int y);
+	
 	public TreePath getPathForLocation(int x, int y);
 
 	public TreePath getPathForRow(int row);
@@ -39,6 +41,8 @@ public interface TreeInterface extends Scrollable {
 
 	public int getRowCount();
 
+	public int getClosestRowForLocation(int x, int y);
+	
 	public int getRowForLocation(int x, int y);
 
 	public int getRowForPath(TreePath path);

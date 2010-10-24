@@ -1,9 +1,18 @@
 package aephyr.swing;
 
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.Graphics;
+import java.awt.Point;
 import java.awt.Rectangle;
+import java.awt.dnd.DropTarget;
+import java.awt.dnd.DropTargetDragEvent;
+import java.awt.dnd.DropTargetDropEvent;
+import java.awt.dnd.DropTargetEvent;
+import java.awt.dnd.DropTargetListener;
+import java.awt.event.MouseEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.Arrays;
@@ -15,8 +24,11 @@ import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TooManyListenersException;
 import java.util.AbstractMap.SimpleEntry;
 
+import javax.swing.DropMode;
 import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.JScrollPane;
@@ -25,13 +37,14 @@ import javax.swing.JViewport;
 import javax.swing.ListSelectionModel;
 import javax.swing.RowSorter;
 import javax.swing.Scrollable;
+import javax.swing.SortOrder;
 import javax.swing.SwingConstants;
+import javax.swing.TransferHandler;
 import javax.swing.UIManager;
+import javax.swing.RowSorter.SortKey;
 import javax.swing.border.Border;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
-import javax.swing.event.RowSorterEvent;
-import javax.swing.event.RowSorterListener;
 import javax.swing.event.TableModelEvent;
 import javax.swing.event.TreeExpansionEvent;
 import javax.swing.event.TreeExpansionListener;
@@ -55,9 +68,13 @@ import javax.swing.tree.TreeSelectionModel;
 
 import aephyr.swing.event.TreeColumnModelEvent;
 import aephyr.swing.event.TreeColumnModelListener;
+import aephyr.swing.event.TreeTableSorterEvent;
+import aephyr.swing.event.TreeTableSorterListener;
 import aephyr.swing.treetable.AbstractTreeModel;
 import aephyr.swing.treetable.DefaultTreeColumnModel;
 import aephyr.swing.treetable.DefaultTreeTableNode;
+import aephyr.swing.treetable.DefaultTreeTableSorter;
+import aephyr.swing.treetable.IconRepository;
 import aephyr.swing.treetable.TreeColumnModel;
 import aephyr.swing.treetable.TreeTableCellEditor;
 import aephyr.swing.treetable.TreeTableCellRenderer;
@@ -104,11 +121,19 @@ public class TreeTable extends JComponent implements Scrollable {
 	
 	private TreeTableCellRenderer focusRenderer;
 	
+	private IconRepository iconRepository;
+	
 	private Icon openIcon;
 	
 	private Icon closedIcon;
 	
 	private Icon leafIcon;
+	
+//	private Map<Object,SortIcon> sortedNodes;
+	
+	private Icon ascendingSortIcon;
+	
+	private Icon descendingSortIcon;
 	
 	private HashMap<Class<?>,TreeTableCellRenderer> defaultRenderers;
 	
@@ -116,9 +141,13 @@ public class TreeTable extends JComponent implements Scrollable {
 	
 	private boolean columnFocusEnabled = true;
 
-	private boolean autoCreateTableHeader = true;
+	private boolean autoCreateColumnHeader = true;
+	
+	private boolean autoCreateRowHeader = false;
 	
 	private boolean autoCreateRowSorter = false;
+	
+//	private boolean sortsNodeOnIconClick = true;
 	
 	private static final String uiClassID = "TreeTableUI";
 
@@ -128,12 +157,25 @@ public class TreeTable extends JComponent implements Scrollable {
 	}
 	
 	public void setUI(TreeTableUI ui) {
+		boolean addExpandLis = false;
+		boolean addWillExpandLis = false;
 		if (table != null) {
 			table.removePropertyChangeListener(adapter);
 			tree.removePropertyChangeListener(adapter);
+			int lisCount = listenerList.getListenerCount(TreeExpansionListener.class);
+			if (lisCount > 0) {
+				tree.removeTreeExpansionListener(adapter);
+				addExpandLis = true;
+			}
+			lisCount = listenerList.getListenerCount(TreeWillExpandListener.class);
+			if (lisCount > 0) {
+				tree.removeTreeWillExpandListener(adapter);
+				addWillExpandLis = true;
+			}
 			getSelectionModel().removeTreeSelectionListener(adapter);
 			if (getAutoCreateColumnsFromModel())
 				columnModel = null;
+			updateUIProperties();
 		}
 		super.setUI(ui);
 		tree = getUI().getTreeInterface(this);
@@ -145,8 +187,12 @@ public class TreeTable extends JComponent implements Scrollable {
 				columnModel.getColumn(hc).setPreferredWidth(150);
 		}
 		getSelectionModel().addTreeSelectionListener(adapter);
-		tree.addPropertyChangeListener(adapter);
 		table.addPropertyChangeListener(adapter);
+		tree.addPropertyChangeListener(adapter);
+		if (addExpandLis)
+			tree.addTreeExpansionListener(adapter);
+		if (addWillExpandLis)
+			tree.addTreeWillExpandListener(adapter);
 		if (getAutoCreateColumnsFromModel() && isDisplayable())
 			configureEnclosingScrollPane();
 	}
@@ -157,44 +203,134 @@ public class TreeTable extends JComponent implements Scrollable {
 	
 	@Override
 	public void updateUI() {
-		setUI(UIManager.get(getUIClassID()) != null ?
-				(TreeTableUI)UIManager.getUI(this) :
-				new BasicTreeTableUI());
+		if (UIManager.get(getUIClassID()) != null) {
+			setUI(UIManager.getUI(this));
+		} else if (ui != null && ui.getClass() == BasicTreeTableUI.class) {
+			((BasicTreeTableUI)ui).updateUI();
+			updateUIProperties();
+		} else {
+			setUI(new BasicTreeTableUI());
+		}
 	}
 	
+	private void updateUIProperties() {
+		if (leafIcon instanceof UIResource)
+			leafIcon = null;
+		if (openIcon instanceof UIResource)
+			openIcon = null;
+		if (closedIcon instanceof UIResource)
+			closedIcon = null;
+		if (ascendingSortIcon instanceof UIResource)
+			ascendingSortIcon = null;
+		if (descendingSortIcon instanceof UIResource)
+			descendingSortIcon = null;
+		updateUIRenderers();
+		updateUIEditors();
+	}
+	
+	@SuppressWarnings("unchecked")
+	private void updateUIRenderers() {
+		if (defaultRenderers == null && columnModel == null)
+			return;
+		IdentityHashMap components = new IdentityHashMap();
+		if (defaultRenderers != null) {
+			for (Map.Entry<Class<?>,TreeTableCellRenderer> entry : defaultRenderers.entrySet()) {
+				if (entry.getValue() instanceof JComponent) {
+					components.put(entry.getValue(), null);
+				} else if (!(entry.getValue() instanceof Component)) {
+					Class<?> cls = entry.getKey();
+					TreeColumnModel cm = adapter.treeColumnModel;
+					for (int col=cm.getColumnCount(); --col>=0;) {
+						if (cls.isAssignableFrom(cm.getColumnClass(col))) {
+							addComponents(components, entry.getValue(),
+									convertColumnIndexToView(col));
+						}
+					}
+				}
+			}
+		}
+		if (columnModel != null) {
+			for (int col=columnModel.getColumnCount(); --col>=0;) {
+				Object r = columnModel.getColumn(col).getCellRenderer();
+				if (r instanceof JComponent) {
+					components.put(r, null);
+				} else if (!(r instanceof Component)
+						&& r instanceof TreeTableCellRenderer) {
+					addComponents(components, (TreeTableCellRenderer)r, col);
+				}
+			}
+		}
+		for (JComponent c : (Set<JComponent>)components.keySet())
+			c.updateUI();
+	}
+	
+	@SuppressWarnings("unchecked")
+	private void addComponents(IdentityHashMap components, TreeTableCellRenderer r, int col) {
+		try {
+			int row;
+			Object value;
+			if (getRowCount() == 0) {
+				row = -1;
+				value = null;
+			} else {
+				row = 0;
+				value = adapter.getValueAt(0, col);
+			}
+			if (col == adapter.treeColumnModel.getHierarchialColumn()) {
+				Component c;
+				if (row < 0) {
+					c = r.getTreeTableCellRendererComponent(
+							this, value, false, false, row, col, false, true);
+				} else {
+					TreePath path = getPathForRow(0);
+					c = r.getTreeTableCellRendererComponent(
+							this, value, false, false, row, col, isExpanded(path),
+							getTreeModel().isLeaf(path.getLastPathComponent()));
+				}
+				if (c instanceof JComponent)
+					components.put(c, c);
+			} else {
+				Component c = r.getTreeTableCellRendererComponent(
+						this, value, false, false, row, col);
+				if (c instanceof JComponent)
+					components.put(c, c);
+			}
+		} catch (Exception e) {}
+	}
+	
+	private void updateUIEditors() {
+		// TODO
+		
+	}
 	
 	public void processTreeExpansion(TreePath path, int rowsAdded) {
-		adapter.updateSorter(path, true);
 		int row = getRowForPath(path);
 		adapter.fireTableRowsInserted(row+1, row+rowsAdded);
+		adapter.updateSorter(path, true);
 		if (getRowHeight() <= 0)
 			updateTableRowHeights(row+1, row+rowsAdded+1);
 	}
 	
 	public void processTreeCollapse(TreePath path, int rowsRemoved) {
-		adapter.updateSorter(path, false);
 		int row = getRowForPath(path);
 		adapter.fireTableRowsDeleted(row+1, row+rowsRemoved);
+		adapter.updateSorter(path, false);
 	}
 
 	
 	@Override
 	public void addNotify() {
 		super.addNotify();
-		if (getAutoCreateTableHeader())
-			configureEnclosingScrollPane();
+		configureEnclosingScrollPane();
 	}
 	
 	@Override
 	public void removeNotify() {
 		super.removeNotify();
-		if (getAutoCreateTableHeader())
-			unconfigureEnclosingScrollPane();
+		unconfigureEnclosingScrollPane();
 	}
 
-
-	// JTable.configureEnclosingScrollPane...
-	protected void configureEnclosingScrollPane() {
+	private JScrollPane getScrollPaneAncestor() {
 		Container p = getParent();
 		if (p instanceof JViewport) {
 			Container gp = p.getParent();
@@ -204,41 +340,52 @@ public class TreeTable extends JComponent implements Scrollable {
 				// example, the rowHeaderView of the scrollPane -
 				// an implementor of fixed columns might do this.
 				JViewport viewport = scrollPane.getViewport();
-				if (viewport == null || viewport.getView() != this) {
-					return;
-				}
-				scrollPane.setColumnHeaderView(getTableHeader());
-				//  scrollPane.getViewport().setBackingStoreEnabled(true);
-				Border border = scrollPane.getBorder();
-				if (border == null || border instanceof UIResource) {
-					Border scrollPaneBorder = 
-						UIManager.getBorder("Table.scrollPaneBorder");
-					if (scrollPaneBorder != null) {
-						scrollPane.setBorder(scrollPaneBorder);
-					}
+				if (viewport != null && viewport.getView() == this)
+					return scrollPane;
+			}
+		}
+		return null;
+	}
+	
+	// JTable.configureEnclosingScrollPane...
+	protected void configureEnclosingScrollPane() {
+		if (!getAutoCreateColumnHeader() && !getAutoCreateRowHeader())
+			return;
+		JScrollPane scrollPane = getScrollPaneAncestor();
+		if (scrollPane == null)
+			return;
+		if (getAutoCreateColumnHeader()) {
+			scrollPane.setColumnHeaderView(getTableHeader());
+			//  scrollPane.getViewport().setBackingStoreEnabled(true);
+			Border border = scrollPane.getBorder();
+			if (border == null || border instanceof UIResource) {
+				Border scrollPaneBorder = 
+					UIManager.getBorder("Table.scrollPaneBorder");
+				if (scrollPaneBorder != null) {
+					scrollPane.setBorder(scrollPaneBorder);
 				}
 			}
+		}
+		if (getAutoCreateRowHeader()) {
+			// TODO, maybe?
 		}
 	}
 
 	// JTable.unconfigureEnclosingScrollPane...
 	protected void unconfigureEnclosingScrollPane() {
-		Container p = getParent();
-		if (p instanceof JViewport) {
-			Container gp = p.getParent();
-			if (gp instanceof JScrollPane) {
-				JScrollPane scrollPane = (JScrollPane)gp;
-				// Make certain we are the viewPort's view and not, for
-				// example, the rowHeaderView of the scrollPane -
-				// an implementor of fixed columns might do this.
-				JViewport viewport = scrollPane.getViewport();
-				if (viewport == null || viewport.getView() != this) {
-					return;
-				}
-				scrollPane.setColumnHeaderView(null);
-			}
-		}
+		if (!getAutoCreateColumnHeader() && !getAutoCreateRowHeader())
+			return;
+		JScrollPane scrollPane = getScrollPaneAncestor();
+		if (scrollPane == null)
+			return;
+		if (getAutoCreateColumnHeader())
+			scrollPane.setColumnHeaderView(null);
+		if (getAutoCreateRowHeader())
+			scrollPane.setRowHeaderView(null);
+
 	}
+	
+	
 	
 	private <T extends EventListener> void addListener(Class<T> cls, T l) {
 		if (l == null)
@@ -277,12 +424,10 @@ public class TreeTable extends JComponent implements Scrollable {
 	}
 	
 	private void fireTreeExpansionEvent(TreePath path, boolean exp) {
-		TreeExpansionEvent e = null;
+		TreeExpansionEvent e = new TreeExpansionEvent(this, path);
 		Object[] listeners = listenerList.getListenerList();
 		for (int i = listeners.length-2; i>=0; i-=2) {
 			if (listeners[i]==TreeExpansionListener.class) {
-				if (e == null)
-					e = new TreeExpansionEvent(this, path);
 				TreeExpansionListener lis = (TreeExpansionListener)listeners[i+1];
 				if (exp) {
 					lis.treeExpanded(e);
@@ -326,7 +471,7 @@ public class TreeTable extends JComponent implements Scrollable {
 	
 
 	public void invalidateAllRows() {
-		TreeModel model = adapter.treeModel;
+		TreeModel model = adapter;
 		TreePath root = new TreePath(model.getRoot());
 		if (tree.isRootVisible())
 			adapter.invalidatePaths(root, null, null);
@@ -338,14 +483,22 @@ public class TreeTable extends JComponent implements Scrollable {
 			Object parent = path.getLastPathComponent();
 			int count = model.getChildCount(parent);
 			if (count > 0) {
-				int[] children = new int[count];
+				int[] childIndices = new int[count];
 				Object[] childNodes = new Object[count];
 				for (int i=count; --i>=0;) {
-					children[i] = i;
+					childIndices[i] = i;
 					childNodes[i] = model.getChild(parent, i);
 				}
-				adapter.invalidatePaths(path, children, childNodes);
+				adapter.invalidatePaths(path, childIndices, childNodes);
 			}
+		}
+	}
+
+	public void invalidatePath(TreePath path) {
+		adapter.invalidatePath(path);
+		if (getRowHeight() <= 0) {
+			int row = getRowForPath(path);
+			updateTableRowHeights(row, row+1);
 		}
 	}
 	
@@ -370,27 +523,31 @@ public class TreeTable extends JComponent implements Scrollable {
 		for (int row=toRow; --row>=fromRow;)
 			table.setRowHeight(row, tree.getRowBounds(row).height);
 	}
-
-
 	
 	
 	
 	
 	
 	
-	
-	
-	public boolean getAutoCreateTableHeader() {
-		return autoCreateTableHeader;
+	public boolean getAutoCreateColumnHeader() {
+		return autoCreateColumnHeader;
 	}
 
-	public void setAutoCreateTableHeader(boolean autoCreateTableHeader) {
-		boolean oldValue = getAutoCreateTableHeader();
-		this.autoCreateTableHeader = autoCreateTableHeader;
-		firePropertyChange("autoCreateTableHeader", oldValue, getAutoCreateTableHeader());
+	public void setAutoCreateColumnHeader(boolean autoCreateColumnHeader) {
+		boolean oldValue = getAutoCreateColumnHeader();
+		this.autoCreateColumnHeader = autoCreateColumnHeader;
+		firePropertyChange("autoCreateColumnHeader", oldValue, getAutoCreateColumnHeader());
 	}
 	
+	public boolean getAutoCreateRowHeader() {
+		return autoCreateRowHeader;
+	}
 	
+	public void setAutoCreateRowHeader(boolean autoCreateRowHeader) {
+		boolean oldValue = getAutoCreateRowHeader();
+		this.autoCreateRowHeader = autoCreateRowHeader;
+		firePropertyChange("autoCreateRowHeader", oldValue, getAutoCreateRowHeader());
+	}
 	
 	
 	public TreeTableCellRenderer getFocusRenderer() {
@@ -465,12 +622,12 @@ public class TreeTable extends JComponent implements Scrollable {
 	}
 	
 	
-	public TreeTableSorter<? extends TreeModel, ? extends TreeColumnModel, ?> getRowSorter() {
+	public TreeTableSorter<? extends TreeModel, ? extends TreeColumnModel> getRowSorter() {
 		return adapter.rowSorter;
 	}
 	
-	public void setRowSorter(TreeTableSorter<? extends TreeModel, ? extends TreeColumnModel, ?> rowSorter) {
-		RowSorter<?> oldValue = getRowSorter();
+	public void setRowSorter(TreeTableSorter<? extends TreeModel, ? extends TreeColumnModel> rowSorter) {
+		TreeTableSorter<?,?> oldValue = getRowSorter();
 		adapter.setRowSorter(rowSorter);
 		firePropertyChange("rowSorter", oldValue, getRowSorter());
 	}
@@ -488,8 +645,12 @@ public class TreeTable extends JComponent implements Scrollable {
 	}
 	
 	private void autoCreateRowSorter() {
-		setRowSorter(new TreeTableSorter<TreeModel,TreeColumnModel,Object>(
+		setRowSorter(new DefaultTreeTableSorter<TreeModel,TreeColumnModel,Object>(
 				getTreeModel(), getTreeColumnModel()));
+	}
+	
+	public RowSorter<?> getSorterForPath(TreePath path) {
+		return adapter.getSorter(path);
 	}
 	
 
@@ -616,7 +777,7 @@ public class TreeTable extends JComponent implements Scrollable {
 	}
 	
 	public void setLeafIcon(Icon leafIcon) {
-		Icon oldValue = getLeafIcon();
+		Icon oldValue = this.leafIcon;
 		this.leafIcon = leafIcon;
 		firePropertyChange("leafIcon", oldValue, getLeafIcon());
 		repaintColumn(getHierarchialColumn());
@@ -629,7 +790,7 @@ public class TreeTable extends JComponent implements Scrollable {
 	}
 	
 	public void setOpenIcon(Icon openIcon) {
-		Icon oldValue = getOpenIcon();
+		Icon oldValue = this.openIcon;
 		this.openIcon = openIcon;
 		firePropertyChange("openIcon", oldValue, getOpenIcon());
 		repaintColumn(getHierarchialColumn());
@@ -642,7 +803,7 @@ public class TreeTable extends JComponent implements Scrollable {
 	}
 	
 	public void setClosedIcon(Icon closedIcon) {
-		Icon oldValue = getClosedIcon();
+		Icon oldValue = this.closedIcon;
 		this.closedIcon = closedIcon;
 		firePropertyChange("closedIcon", oldValue, getClosedIcon());
 		repaintColumn(getHierarchialColumn());
@@ -655,6 +816,213 @@ public class TreeTable extends JComponent implements Scrollable {
 		r.height = getHeight();
 		repaint(r);
 	}
+	
+	public IconRepository getIconRepository() {
+		return iconRepository;
+	}
+	
+	public void setIconRepository(IconRepository iconRepository) {
+		IconRepository oldValue = getIconRepository();
+		this.iconRepository = iconRepository;
+		firePropertyChange("iconRepository", oldValue, getIconRepository());
+	}
+	
+	public Icon getAscendingSortIcon() {
+		if (ascendingSortIcon == null)
+			ascendingSortIcon = UIManager.getIcon("Table.ascendingSortIcon");
+		return ascendingSortIcon;
+	}
+	
+	public void setAscendingSortIcon(Icon ascendingSortIcon) {
+		Icon oldValue = getAscendingSortIcon();
+		this.ascendingSortIcon = ascendingSortIcon;
+		firePropertyChange("ascendingSortIcon", oldValue, getAscendingSortIcon());
+	}
+	
+	public Icon getDescendingSortIcon() {
+		if (descendingSortIcon == null)
+			descendingSortIcon = UIManager.getIcon("Table.descendingSortIcon");
+		return descendingSortIcon;
+	}
+	
+	public void setDescendingSortIcon(Icon descendingSortIcon) {
+		Icon oldValue = getDescendingSortIcon();
+		this.descendingSortIcon = descendingSortIcon;
+		firePropertyChange("descendingSortIcon", oldValue, getDescendingSortIcon());
+	}
+	
+	
+//	private static class SortIcon implements Icon {
+//		
+//		private static final int GAP = 4;
+//		
+//		Icon icon;
+//		
+//		Icon sortIcon;
+//		
+//		@Override
+//		public int getIconHeight() {
+//			return icon == null ? sortIcon.getIconHeight() :
+//				Math.max(icon.getIconHeight(), sortIcon.getIconHeight());
+//		}
+//
+//		@Override
+//		public int getIconWidth() {
+//			return icon == null ? sortIcon.getIconWidth() :
+//				icon.getIconWidth() + GAP + sortIcon.getIconWidth();
+//		}
+//
+//		@Override
+//		public void paintIcon(Component c, Graphics g, int x, int y) {
+//			int h = icon == null ? -1 : icon.getIconHeight();
+//			int sortY = y;
+//			if (h > sortIcon.getIconHeight())
+//				sortY += (h - sortIcon.getIconHeight())/2 + 1;
+//			if (c.getComponentOrientation().isLeftToRight()) {
+//				if (icon != null) {
+//					icon.paintIcon(c, g, x, y);
+//					x += icon.getIconWidth() + GAP;
+//				}
+//				sortIcon.paintIcon(c, g, x, sortY);
+//			} else {
+//				sortIcon.paintIcon(c, g, x, sortY);
+//				if (icon != null) {
+//					x += sortIcon.getIconWidth() + GAP;
+//					icon.paintIcon(c, g, x, y);
+//				}
+//			}
+//		}
+//		
+//	}
+	
+	public Icon getIconForPath(TreePath path, boolean expanded, boolean leaf) {
+		return getIcon(-1, path, expanded, leaf);
+	}
+
+	public Icon getIconForRow(int row, boolean expanded, boolean leaf) {
+		return getIcon(row, null, expanded, leaf);
+	}
+		
+	private Icon getIcon(int row, TreePath path, boolean expanded, boolean leaf) {
+		Icon icon = null;
+		if (iconRepository != null) {
+			if (path == null)
+				path = getPathForRow(row);
+			icon = iconRepository.getIcon(path, expanded, leaf);
+		}
+		if (icon == null) {
+			if (leaf) {
+				icon = getLeafIcon();
+			} else if (expanded) {
+				icon = getOpenIcon();
+			} else {
+				icon = getClosedIcon();
+			}
+		}
+//		if (sortedNodes != null && expanded) {
+//			if (path == null)
+//				path = getPathForRow(row);
+//			SortIcon si = sortedNodes.get(path.getLastPathComponent());
+//			if (si != null) {
+//				si.icon = icon;
+//				icon = si;
+//			}
+//		}
+		return icon;
+	}
+	
+//	public boolean getSortsNodeOnIconClick() {
+//		return sortsNodeOnIconClick;
+//	}
+//	
+//	public void setSortsNodeOnIconClick(boolean sortsNodeOnIconClick) {
+//		boolean oldValue = getSortsNodeOnIconClick();
+//		this.sortsNodeOnIconClick = sortsNodeOnIconClick;
+//		firePropertyChange("sortsNodeOnIconClick", oldValue, getSortsNodeOnIconClick());
+//	}
+	
+//	protected void processMouseEvent(MouseEvent e) {
+//		if (getSortsNodeOnIconClick() && getRowSorter() != null
+//				&& SwingUtilities.isLeftMouseButton(e)) {
+//			switch (e.getID()) {
+//			default: sortNodeOnIconClick(e);
+//			case MouseEvent.MOUSE_ENTERED:
+//			case MouseEvent.MOUSE_EXITED:
+//			}
+//		}
+//		super.processMouseEvent(e);
+//	}
+	
+//	private void sortNodeOnIconClick(MouseEvent e) {
+//		Point pt = e.getPoint();
+//		int col = columnAtPoint(pt);
+//		if (col < 0 || col != getHierarchialColumn())
+//			return;
+//		int row = rowAtPoint(pt);
+//		if (row < 0)
+//			return;
+//		TreePath path = getPathForRow(row);
+//		if (getTreeModel().isLeaf(path.getLastPathComponent()))
+//			return;
+//		Rectangle node = getPathBounds(path);
+//		Rectangle cell = getCellRect(row, col, true);
+//		boolean exp = isExpanded(path);
+//		if (getComponentOrientation().isLeftToRight()) {
+//			int x = e.getX() - cell.x - node.x;
+//			if (x < 0 || x > getIconForRow(row, exp, false).getIconWidth())
+//				return;
+//		} else {
+//			int x = e.getX() - cell.x;
+//			int w = getIconForRow(row, exp, false).getIconWidth();
+//			if (x > node.width || x < node.width - w)
+//				return;
+//		}
+//		e.consume();
+//		if (e.getID() != MouseEvent.MOUSE_PRESSED)
+//			return;
+//		if (!exp)
+//			expandPath(path);
+//		RowSorter<?> sorter = getSorterForPath(path);
+//		sorter.toggleSortOrder(col);
+//		List<? extends SortKey> keys = sorter.getSortKeys();
+//		if (keys.isEmpty())
+//			return;
+//		SortKey key = keys.get(0);
+//		if (key.getColumn() != col)
+//			return;
+//		Icon icon;
+//		switch (key.getSortOrder()) {
+//		default:
+//			sorter.setSortKeys(null);
+//			if (sortedNodes != null) {
+//				sortedNodes.remove(path.getLastPathComponent());
+//				if (sortedNodes.isEmpty())
+//					sortedNodes = null;
+//			}
+//			return;
+//		case ASCENDING:
+//			icon = getAscendingSortIcon();
+//			break;
+//		case DESCENDING:
+//			icon = getDescendingSortIcon();
+//			break;
+//		}
+//		if (sortedNodes == null)
+//			sortedNodes = new HashMap<Object,SortIcon>(8);
+//		SortIcon sortIcon = sortedNodes.get(path.getLastPathComponent());
+//		if (sortIcon == null) {
+//			sortIcon = new SortIcon();
+//			sortedNodes.put(path.getLastPathComponent(), sortIcon);
+//			sortIcon.sortIcon = icon;
+//			adapter.invalidatePath(path);
+//		} else {
+//			sortIcon.sortIcon = icon;
+//		}
+//		repaint(node);
+//	}
+	
+	
+
 	
 	
 	
@@ -680,6 +1048,8 @@ public class TreeTable extends JComponent implements Scrollable {
 
 	public void setCellSelectionEnabled(boolean cellSelectionEnabled) {
 		table.setCellSelectionEnabled(cellSelectionEnabled);
+		if (getDragEnabled())
+			updateDropMode();
 	}
 
 	public boolean getColumnSelectionAllowed() {
@@ -688,6 +1058,8 @@ public class TreeTable extends JComponent implements Scrollable {
 
 	public void setColumnSelectionAllowed(boolean columnSelectionAllowed) {
 		table.setColumnSelectionAllowed(columnSelectionAllowed);
+		if (getDragEnabled())
+			updateDropMode();
 	}
 
 	public Color getGridColor() {
@@ -720,6 +1092,8 @@ public class TreeTable extends JComponent implements Scrollable {
 
 	public void setRowSelectionAllowed(boolean rowSelectionAllowed) {
 		table.setRowSelectionAllowed(rowSelectionAllowed);
+		if (getDragEnabled())
+			updateDropMode();
 	}
 
 	public boolean getShowHorizontalLines() {
@@ -786,6 +1160,10 @@ public class TreeTable extends JComponent implements Scrollable {
 	public TreePath getPathForLocation(int x, int y) {
 		return tree.getPathForLocation(x, y);
 	}
+	
+	public TreePath getClosestPathForLocation(int x, int y) {
+		return tree.getClosestPathForLocation(x, y);
+	}
 
 	public TreePath getPathForRow(int row) {
 		return tree.getPathForRow(row);
@@ -801,6 +1179,10 @@ public class TreeTable extends JComponent implements Scrollable {
 
 	public int getRowForLocation(int x, int y) {
 		return tree.getRowForLocation(x, y);
+	}
+	
+	public int getClosestRowForLocation(int x, int y) {
+		return tree.getClosestRowForLocation(x, y);
 	}
 
 	public int getRowForPath(TreePath path) {
@@ -883,7 +1265,11 @@ public class TreeTable extends JComponent implements Scrollable {
 			updateTableRowHeights();
 	}
 
-
+	public int getRowHeight(int row) {
+		return table.getRowHeight(row);
+	}
+	
+	
 	
 	public TreeSelectionModel getSelectionModel() {
 		return tree == null ? null : tree.getSelectionModel();
@@ -1055,6 +1441,21 @@ public class TreeTable extends JComponent implements Scrollable {
 	}
 
 
+
+	public Rectangle getCellRect(int row, int column, boolean includeSpacing) {
+		return table.getCellRect(row, column, includeSpacing);
+	}
+	
+	public int columnAtPoint(Point pt) {
+		return table.columnAtPoint(pt);
+	}
+	
+	public int rowAtPoint(Point pt) {
+		return table.rowAtPoint(pt);
+	}
+	
+	
+	
 	
 	
 	
@@ -1062,7 +1463,15 @@ public class TreeTable extends JComponent implements Scrollable {
 	// Scrollable interface
 
 	public Dimension getPreferredScrollableViewportSize() {
-		Dimension size = tree.getPreferredScrollableViewportSize();
+		Dimension size;
+		if (adapter.treeColumnModel.getHierarchialColumn() < 0) {
+			int ht = getRowHeight();
+			if (ht <= 0)
+				ht = 20;
+			size = new Dimension(tree.getVisibleRowCount()*ht, 0);
+		} else {
+			size = tree.getPreferredScrollableViewportSize();
+		}
 		TableColumnModel cm = getColumnModel();
 		int width = 0;
 		for (int col=cm.getColumnCount(); --col>=0;)
@@ -1139,8 +1548,10 @@ public class TreeTable extends JComponent implements Scrollable {
 	
 	protected class Adapter extends AbstractTableModel implements
 			TreeTableModel, TreeModelListener, TreeColumnModelListener,
-			ListSelectionModel, PropertyChangeListener, RowSorterListener,
+			ListSelectionModel, PropertyChangeListener, TreeTableSorterListener,
 			TreeExpansionListener, TreeSelectionListener, TreeWillExpandListener {
+		
+		Adapter() {}
 
 		public Adapter(TreeModel tm, TreeColumnModel tcm) {
 			treeModel = tm;
@@ -1159,24 +1570,16 @@ public class TreeTable extends JComponent implements Scrollable {
 		 */
 		protected Object treeRoot;
 		
-		private TreeTableSorter<? extends TreeModel, ? extends TreeColumnModel, ?> rowSorter;
-		
-		private Map<Object,TreeTableSorter<?,?,?>> sorters;
+		private TreeTableSorter<? extends TreeModel, ? extends TreeColumnModel> rowSorter;
 		
 		private boolean ignoreSortedChange = false;
 		
-		public void setRowSorter(TreeTableSorter<? extends TreeModel, ? extends TreeColumnModel, ?> sorter) {
+		public void setRowSorter(TreeTableSorter<? extends TreeModel, ? extends TreeColumnModel> sorter) {
 			if (rowSorter != null)
-				rowSorter.removeRowSorterListener(this);
+				rowSorter.removeTreeTableSorterListener(this);
 			rowSorter = sorter;
-			if (sorter == null) {
-				sorters = null;
-			} else {
-				sorters = new IdentityHashMap<Object,TreeTableSorter<?,?,?>>();
-				sorters.put(treeRoot, rowSorter);
-				updateSorter(new TreePath(getTreeModel().getRoot()), true);
-				sorter.addRowSorterListener(this);
-			}
+			if (sorter != null)
+				sorter.addTreeTableSorterListener(this);
 
 		}
 		
@@ -1242,21 +1645,26 @@ public class TreeTable extends JComponent implements Scrollable {
 		public void treeColumnChanged(TreeColumnModelEvent e) {
 			TreePath path = e.getTreePath();
 			if (rowSorter != null) {
-				TreeTableSorter<?,?,?> sorter = sorters.get(path.getLastPathComponent());
+				RowSorter<?> sorter = rowSorter.getRowSorter(path.getLastPathComponent());
 				if (sorter != null && path.getParentPath() != null) {
-					Object parent = path.getParentPath().getLastPathComponent();
-					Object node = path.getLastPathComponent();
-					int modelRow = treeModel.getIndexOfChild(parent, node);
-					int viewRow = sorter.convertRowIndexToView(modelRow);
-					sorter.rowsUpdated(modelRow, modelRow);
-					if (sorter.convertRowIndexToView(modelRow) != viewRow) {
-						if (isExpanded(path)) {
-							updatePath(path, expandedDescendants(path));
-							fireTableDataChanged();
-						} else {
-							fireTreeStructureChanged(path);
+					boolean isc = ignoreSortedChange;
+					ignoreSortedChange = true;
+					try {
+						Object parent = path.getParentPath().getLastPathComponent();
+						Object node = path.getLastPathComponent();
+						int modelRow = treeModel.getIndexOfChild(parent, node);
+						int viewRow = sorter.convertRowIndexToView(modelRow);
+						sorter.rowsUpdated(modelRow, modelRow);
+						if (sorter.convertRowIndexToView(modelRow) != viewRow) {
+							if (isExpanded(path)) {
+								updatePath(path, expandedDescendants(path));
+							} else {
+								fireTreeStructureChanged(path);
+							}
+							return;
 						}
-						return;
+					} finally {
+						ignoreSortedChange = isc;
 					}
 				}
 			}
@@ -1274,6 +1682,9 @@ public class TreeTable extends JComponent implements Scrollable {
 				updateTableRowHeights(row, row+1);
 			}
 		}
+// TODO, maybe add these?
+//		public void treeColumnAdded(TreeColumnModelEvent e);
+//		public void treeColumnRemoved(TreeColumnModelEvent e);
 
 		// TreeModelListener interface
 
@@ -1289,7 +1700,7 @@ public class TreeTable extends JComponent implements Scrollable {
 					updateTable(0, 0, TableModelEvent.UPDATE);
 			} else {
 				processTreeNodesChanged(path, childIndices, childNodes);
-				updateTable(path, childNodes, TableModelEvent.UPDATE);
+				updateTable(path, getRows(path, childNodes), TableModelEvent.UPDATE);
 			}
 		}
 
@@ -1297,30 +1708,54 @@ public class TreeTable extends JComponent implements Scrollable {
 		public void treeNodesInserted(TreeModelEvent e) {
 			TreePath path = e.getTreePath();
 			int[] childIndices = e.getChildIndices();
-			if (childIndices == null)
-				return;
 			Object[] childNodes = e.getChildren();
+			if (childIndices == null || childNodes == null)
+				return;
 			
 			// update the tree view first
 			processTreeNodesInserted(path, childIndices, childNodes);
 			
 			// then update the table view
-			updateTable(path, childNodes, TableModelEvent.INSERT);
+			updateTable(path, getRows(path, childNodes), TableModelEvent.INSERT);
 		}
 		
 		@Override
 		public void treeNodesRemoved(TreeModelEvent e) {
 			TreePath path = e.getTreePath();
 			int[] childIndices = e.getChildIndices();
-			if (childIndices == null)
-				return;
 			Object[] childNodes = e.getChildren();
+			if (childIndices == null || childNodes == null)
+				return;
+			
+			// find the row indices in the tree
+			int[] rows = getRows(path, childNodes);
 			
 			// update the tree view first
 			processTreeNodesRemoved(path, childIndices, childNodes);
 			
 			// then update the table view
-			updateTable(path, childNodes, TableModelEvent.DELETE);
+			updateTable(path, rows, TableModelEvent.DELETE);
+		}
+		
+		private int[] getRows(TreePath parent, Object[] childNodes) {
+			if (!isExpanded(parent))
+				return null;
+			int row = getRowForPath(parent);
+			if (row < 0)
+				return null;
+			int[] rows = new int[childNodes.length];
+			int len = 0;
+			for (int i=0; i<childNodes.length; i++) {
+				TreePath path = parent.pathByAddingChild(childNodes[i]);
+				int r = getRowForPath(path);
+				if (r >= 0)
+					rows[len++] = r;
+			}
+			if (len == 0)
+				return null;
+			if (len != rows.length)
+				rows = Arrays.copyOf(rows, len);
+			return rows;
 		}
 		
 		@Override
@@ -1328,19 +1763,9 @@ public class TreeTable extends JComponent implements Scrollable {
 			TreePath path = e.getTreePath();
 			
 			// update the tree view
-			boolean fire = true;
-			if (rowSorter != null) {
-				TreeTableSorter<?,?,?> sorter = sorters.get(path.getLastPathComponent());
-				if (sorter != null) {
-					fire = false;
-					List<Object> nodes = sorter.removeAllChildren();
-					for (Object node : nodes)
-						sorters.remove(node);
-					updateSorter(path, false);
-				}
-			}
-			if (fire)
-				fireTreeStructureChanged(path);
+			if (rowSorter != null)
+				rowSorter.structureChanged(path);
+			fireTreeStructureChanged(path);
 			
 			// then update the table view
 			if (path.getPathCount() == 1 && path.getLastPathComponent() != treeRoot) {
@@ -1353,7 +1778,7 @@ public class TreeTable extends JComponent implements Scrollable {
 		
 		private void processTreeNodesChanged(TreePath path, int[] childIndices, Object[] childNodes) {
 			if (rowSorter != null) {
-				TreeTableSorter<?,?,?> sorter = sorters.get(path.getLastPathComponent());
+				RowSorter<?> sorter = rowSorter.getRowSorter(path.getLastPathComponent());
 				if (sorter != null) {
 					boolean isc = ignoreSortedChange;
 					ignoreSortedChange = true;
@@ -1363,17 +1788,27 @@ public class TreeTable extends JComponent implements Scrollable {
 							int viewRow = sorter.convertRowIndexToView(row);
 							sorter.rowsUpdated(row, row);
 							childIndices[0] = sorter.convertRowIndexToView(row);
-							if (childIndices[0] == viewRow && viewRow >= 0) {
-								fireTreeNodesChanged(path, childIndices, childNodes);
+							if (childIndices[0] == viewRow) {
+								if (viewRow >= 0)
+									fireTreeNodesChanged(path, childIndices, childNodes);
 								return;
 							}
 						} else {
+							SorterHelper help = new SorterHelper(sorter, childIndices, childNodes);
+							int[] viewIndices = null;
+							Object[] viewNodes = null;
+							if (help.computeView()) {
+								viewIndices = Arrays.copyOf(help.viewIndices, help.viewIndices.length);
+								viewNodes = Arrays.copyOf(help.viewNodes, help.viewNodes.length);
+							}
 							sorter.rowsUpdated(childIndices[0], childIndices[childIndices.length-1]);
-							if (!sorter.getSortsOnUpdates()) {
-								SorterHelper help = new SorterHelper(sorter, childIndices, childNodes);
-								if (help.computeView()) {
-									fireTreeNodesChanged(path, help.viewIndices, help.childNodes);
+							if (help.computeView()) {
+								if (Arrays.equals(viewIndices, help.viewIndices)
+										&& Arrays.equals(viewNodes, help.viewNodes)) {
+									fireTreeNodesChanged(path, viewIndices, viewNodes);
+									return;
 								}
+							} else if (viewIndices == null) {
 								return;
 							}
 						}
@@ -1389,7 +1824,7 @@ public class TreeTable extends JComponent implements Scrollable {
 		
 		private void processTreeNodesInserted(TreePath path, int[] childIndices, Object[] childNodes) {
 			if (rowSorter != null) {
-				TreeTableSorter<?,?,?> sorter = sorters.get(path.getLastPathComponent());
+				RowSorter<?> sorter = rowSorter.getRowSorter(path.getLastPathComponent());
 				if (sorter != null) {
 					boolean isc = ignoreSortedChange;
 					ignoreSortedChange = true;
@@ -1422,7 +1857,7 @@ public class TreeTable extends JComponent implements Scrollable {
 		
 		private void processTreeNodesRemoved(TreePath path, int[] childIndices, Object[] childNodes) {
 			if (rowSorter != null) {
-				TreeTableSorter<?,?,?> sorter = sorters.get(path.getLastPathComponent());
+				RowSorter<?> sorter = rowSorter.getRowSorter(path.getLastPathComponent());
 				if (sorter != null) {
 					boolean isc = ignoreSortedChange;
 					ignoreSortedChange = true;
@@ -1446,10 +1881,7 @@ public class TreeTable extends JComponent implements Scrollable {
 					} finally {
 						ignoreSortedChange = isc;
 					}
-					for (Object node : childNodes)
-						sorters.remove(node);
-					for (Object node : sorter.nodesRemoved(childNodes))
-						sorters.remove(node);
+					rowSorter.nodesRemoved(path, childNodes);
 					return;
 				}
 			}
@@ -1458,56 +1890,39 @@ public class TreeTable extends JComponent implements Scrollable {
 
 
 		
-		private void updateTable(TreePath parent, Object[] childNodes, int eventType) {
-			if (!isExpanded(parent))
-				return;
-			int row = getRowForPath(parent);
-			if (row < 0)
-				return;
-			// find the row indices in the tree
-			int[] rows = new int[childNodes.length];
-			int len = 0;
-			for (int i=0; i<childNodes.length; i++) {
-				TreePath path = parent.pathByAddingChild(childNodes[i]);
-				int r = getRowForPath(path);
-				if (r >= 0)
-					rows[len++] = r;
-			}
-			if (len == 0)
-				return;
+		private void updateTable(TreePath parent, int[] rows, int eventType) {
+			int len = rows.length;
 			if (len == 1) {
 				updateTable(rows[0], rows[0], eventType);
 			} else {
 				Arrays.sort(rows, 0, len);
-				int lastRow = -1;
-				int firstRow = -1;
+				int firstRow, lastRow;
 				if (eventType == TableModelEvent.DELETE) {
-					for (int i=len; --i>=0;) {
+					firstRow = rows[len-1];
+					lastRow = rows[len-1];
+					for (int i=len-1; --i>=0;) {
 						int idx = rows[i];
-						if (firstRow < 0) {
-							firstRow = lastRow = idx;
-						} else if (idx == firstRow - 1) {
+						if (idx == firstRow - 1) {
 							firstRow = idx;
 						} else {
 							updateTable(firstRow, lastRow, eventType);
 							firstRow = lastRow = idx;
 						}
 					}
-					updateTable(firstRow, lastRow, eventType);
 				} else {
-					for (int i=0; i<len; i++) {
+					firstRow = rows[0];
+					lastRow = rows[0];
+					for (int i=1; i<len; i++) {
 						int idx = rows[i];
-						if (lastRow < 0) {
-							lastRow = firstRow = idx;
-						} else if (idx == lastRow + 1) {
+						if (idx == lastRow + 1) {
 							lastRow = idx;
 						} else {
 							updateTable(firstRow, lastRow, eventType);
 							lastRow = firstRow = idx;
 						}
 					}
-					updateTable(firstRow, lastRow, eventType);
 				}
+				updateTable(firstRow, lastRow, eventType);
 			}
 		}
 
@@ -1558,14 +1973,13 @@ public class TreeTable extends JComponent implements Scrollable {
 					getColumnModel().getSelectionModel().getLeadSelectionIndex();
 				repaint((TreePath)evt.getOldValue(), col);
  				repaint((TreePath)evt.getNewValue(), col);
-			} else if (name == "model") {
-				return;
 			} else if (name == "rowHeight") {
 				if (evt.getSource() != tree)
 					return; // only fire once
 			} else if (name == "componentOrientation"
 					|| name == "enabled"
-					|| name == "rowSorter") {
+					|| name == "rowSorter"
+					|| name == "model") {
 				return; // don't fire
 			}
 			firePropertyChange(name, evt.getOldValue(), evt.getNewValue());
@@ -1742,8 +2156,8 @@ public class TreeTable extends JComponent implements Scrollable {
 
 		@Override
 		public int getChildCount(Object parent) {
-			if (sorters != null) {
-				TreeTableSorter<?,?,?> sorter = sorters.get(parent);
+			if (rowSorter != null) {
+				RowSorter<?> sorter = rowSorter.getRowSorter(parent);
 				if (sorter != null)
 					return sorter.getViewRowCount();
 			}
@@ -1765,7 +2179,7 @@ public class TreeTable extends JComponent implements Scrollable {
 
 		@Override
 		public Object getRoot() {
-			return treeModel.getRoot();
+			return treeRoot;
 		}
 
 		@Override
@@ -1779,8 +2193,8 @@ public class TreeTable extends JComponent implements Scrollable {
 		}
 		
 		public int convertIndexToModel(Object parent, int index) {
-			if (sorters != null) {
-				TreeTableSorter<?,?,?> sorter = sorters.get(parent);
+			if (rowSorter != null) {
+				RowSorter<?> sorter = rowSorter.getRowSorter(parent);
 				if (sorter != null)
 					return sorter.convertRowIndexToModel(index);
 			}
@@ -1788,17 +2202,22 @@ public class TreeTable extends JComponent implements Scrollable {
 		}
 		
 		public int convertIndexToView(Object parent, int index) {
-			if (sorters != null) {
-				TreeTableSorter<?,?,?> sorter = sorters.get(parent);
+			if (rowSorter != null) {
+				RowSorter<?> sorter = rowSorter.getRowSorter(parent);
 				if (sorter != null)
 					return sorter.convertRowIndexToView(index);
 			}
 			return index;
 		}
 
-		
-		
-		
+		// TODO maybe replace invalidateRows with a cleaner implementation
+		public void invalidateRows_(int firstRow, int lastRow) {
+			if (firstRow == lastRow) {
+				invalidatePath(getPathForRow(firstRow));
+			} else {
+				
+			}
+		}
 		public void invalidateRows(int firstRow, int lastRow) {
 			for (int row=lastRow; row>=firstRow; row--) {
 				invalidatePath(getPathForRow(row));
@@ -1850,10 +2269,10 @@ public class TreeTable extends JComponent implements Scrollable {
 			AbstractTreeModel.fireTreeStructureChanged(listenerList, this, path);
 		}
 		
-		// RowSorterListener Interface
-
-		@Override
-		public void sorterChanged(RowSorterEvent e) {
+		// TreeTableSorterListener Interface
+		
+		public void sorterChanged(TreeTableSorterEvent e) {
+			System.out.print(e.getType().name());
 			switch (e.getType()) {
 			case SORT_ORDER_CHANGED:
 				JTableHeader header = getTableHeader();
@@ -1861,12 +2280,32 @@ public class TreeTable extends JComponent implements Scrollable {
 					header.repaint();
 				break;
 			case SORTED:
-				if (!ignoreSortedChange) {
-					TreePath root = new TreePath(treeRoot);
-					updatePath(root, expandedDescendants(root));
-				}
+				TreePath root = new TreePath(treeRoot);
+				updatePath(root, expandedDescendants(root));
+				if (getRowHeight() <= 0)
+					updateTableRowHeights();
+				break;
+			case NODE_SORTED:
+				System.out.print(" " + e.getTreePath());
+				nodeSorted(e.getTreePath());
 				break;
 			}
+			System.out.println();
+		}
+		
+		private void nodeSorted(TreePath path) {
+			if (!ignoreSortedChange) {
+				RowSorter<?> sorter = rowSorter.getRowSorter(path.getLastPathComponent());
+				SortKey key = sorter.getSortKeys().get(0);
+				if (key.getSortOrder() == SortOrder.UNSORTED) {
+					sortedPaths.remove(path);
+				} else {
+					sortedPaths.put(path, key);
+				}
+			}
+			updatePath(path, expandedDescendants(path));
+			if (getExpandsSortedNodes() && !isExpanded(path))
+				expandPath(path);
 		}
 		
 		private List<TreePath> expandedDescendants(TreePath path) {
@@ -1876,56 +2315,78 @@ public class TreeTable extends JComponent implements Scrollable {
 		
 		void updatePath(TreePath path, List<TreePath> exp) {
 			TreePath[] sel = getSelectionPaths();
+			int row = getRowForPath(path);
+			int rowCount = getRowCount();
 			fireTreeStructureChanged(path);
-			for (TreePath p : exp)
-				expandPath(p);
+			int newRowCount = getRowCount();
+			if (newRowCount == rowCount) {
+				int count = getChildCount(path.getLastPathComponent());
+				if (count > 0) {
+					fireTableRowsUpdated(row+1, row+count);
+					if (getRowHeight() <= 0)
+						updateTableRowHeights(row+1, row+count+1);
+				}
+			} else {
+				fireTableDataChanged();
+				if (getRowHeight() <= 0)
+					updateTableRowHeights();
+				for (TreePath p : exp)
+					expandPath(p);
+			}
 			setSelectionPaths(sel);
 		}
 		
 		void updateSorter(TreePath path, boolean visible) {
-			TreeTableSorter<?,?,?> sorter = rowSorter;
-			if (sorter == null)
-				return;
-			Map<Object,TreeTableSorter<?,?,?>> sorterMap = sorters;
-			for (int idx=1, count=path.getPathCount(); idx<count; idx++) {
-				Object node = path.getPathComponent(idx);
-				sorter = sorter.getChildSorter(node);
-				sorterMap.put(node, sorter);
-			}
-			sorter.setVisible(visible);
-			if (visible) {
-				List<TreePath> exp = expandedDescendants(path);
-				for (TreePath p : exp) {
-					TreeTableSorter<?,?,?> s = sorter;
-					for (int idx=path.getPathCount(), count=p.getPathCount(); idx<count; idx++) {
-						Object node = p.getPathComponent(idx);
-						s = s.getChildSorter(node);
-						sorterMap.put(node, s);
-						s.setVisible(true);
-					}
+			boolean isc = ignoreSortedChange;
+			ignoreSortedChange = true;
+			try {
+				if (rowSorter != null) {
+					List<TreePath> subPaths = visible ?
+							expandedDescendants(path) : Collections.<TreePath>emptyList();
+							rowSorter.setVisible(path, subPaths, visible);
 				}
-				sorter.sort();
-				updatePath(path, exp);
+			} finally {
+				ignoreSortedChange = isc;
 			}
-
 		}
-
+		
+		RowSorter<?> getSorter(TreePath path) {
+			return rowSorter == null ? null : rowSorter.getRowSorter(path);
+		}
+		
 	}
 	
+	private HashMap<TreePath,SortKey> sortedPaths = new HashMap<TreePath,SortKey>();
+	
+	private boolean expandsSortedNodes = true;
+	
+	public Map<TreePath,SortKey> getSortedPaths() {
+		return Collections.unmodifiableMap(sortedPaths);
+	}
+	
+	public boolean getExpandsSortedNodes() {
+		return expandsSortedNodes;
+	}
+	
+	public void setExpandesSortedNodes(boolean expandsSortedNodes) {
+		boolean oldValue = getExpandsSortedNodes();
+		this.expandsSortedNodes = expandsSortedNodes;
+		firePropertyChange("expandsSortedNodes", oldValue, getExpandsSortedNodes());
+	}
 	
 	private static class SorterHelper implements Comparator<SimpleEntry<Integer,Object>> {
 		
-		SorterHelper(TreeTableSorter<?,?,?> s, int[] i, Object[] n) {
+		SorterHelper(RowSorter<?> s, int[] i, Object[] n) {
 			sorter = s;
 			childIndices = i;
 			childNodes = n;
 		}
 		
-		TreeTableSorter<?,?,?> sorter;
+		private final RowSorter<?> sorter;
 		
-		int[] childIndices;
+		private final int[] childIndices;
 		
-		Object[] childNodes;
+		private final Object[] childNodes;
 		
 		int[] viewIndices;
 		
@@ -1964,7 +2425,7 @@ public class TreeTable extends JComponent implements Scrollable {
 			int[] viewIndices = new int[childIndices.length];
 			Object[] viewNodes = new Object[childIndices.length];
 			int viewLen = 0;
-			for (int i=childIndices.length; --i>=0;) {
+			for (int i=0; i<childIndices.length; i++) {
 				int idx = childIndices[i];
 				int view = sorter.convertRowIndexToView(idx);
 				if (view >= 0) {
@@ -1992,5 +2453,386 @@ public class TreeTable extends JComponent implements Scrollable {
 		}
 		
 	}
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	// Drag & Drop Support
+	
+	private boolean dragEnabled;
+	
+	private boolean dropModeSet = false;
+	
+	private transient DropLocation dropLocation;
+	
+	// TransferHandler's canImport may need to query
+	// the DropLocation directly from the TreeTable
+	// until it is possible to create proper DropLocations
+	// for custom JComponents (hopefully 1.7).
+	private DTDE dtde;
+	
+	public boolean getDragEnabled() {
+		return dragEnabled;
+	}
+	
+	public void setDragEnabled(boolean dragEnabled) {
+		boolean oldValue = getDragEnabled();
+		this.dragEnabled = dragEnabled;
+		firePropertyChange("dragEnabled", oldValue, getDragEnabled());
+		if (getDragEnabled())
+			updateDropMode();
+	}
+	
+	public DropMode getDropMode() {
+		return table.getDropMode();
+	}
+	
+	public void setDropMode(DropMode dropMode) {
+		if (dropMode == null) {
+			dropModeSet = false;
+			updateDropMode();
+		} else {
+			switch (dropMode) {
+			default:
+				throw new IllegalArgumentException("Unsupported DropMode: " + dropMode);
+			case ON:
+			case INSERT:
+			case INSERT_ROWS:
+			case INSERT_COLS:
+			case ON_OR_INSERT:
+			case ON_OR_INSERT_ROWS:
+			case ON_OR_INSERT_COLS:
+			}
+			dropModeSet = true;
+			table.setDropMode(dropMode);
+		}
+	}
+	
+	private void updateDropMode() {
+		if (dropModeSet)
+			return;
+		if (getRowSelectionAllowed()) {
+			if (getColumnSelectionAllowed()) {
+				table.setDropMode(DropMode.ON);
+			} else {
+				table.setDropMode(DropMode.INSERT_ROWS);
+			}
+		} else if (getColumnSelectionAllowed()) {
+			table.setDropMode(DropMode.INSERT_COLS);
+		} else {
+			table.setDropMode(DropMode.ON);
+		}
+	}
+	
+	
+	public DropLocation getDropLocation() {
+		// dtde will be the DropTargetDragEvent that is
+		// currently being processed by the TransferHandler.
+		if (dtde != null)
+			return createDropLocation(dtde.getLocation());
+		return dropLocation;
+	}
+	
+	
+	public void setTransferHandler(TransferHandler th) {
+		super.setTransferHandler(th);
+		if (th != null)
+			setDropTarget(new DT(getDropTarget()));
+	}
+	
+	
+	private void setDropLocation(Point pt) {
+		DropLocation oldLocation = dropLocation;
+		dropLocation = pt == null ? null : createDropLocation(pt);
+		if (oldLocation == null ? dropLocation != null :
+				!oldLocation.equals(dropLocation))
+			repaint(); // TODO: trim this repaint call
+	}
+	
+	
+	private DropLocation createDropLocation(Point pt) {
+		TreePath path = null;
+		int index = -1;
+		int row = rowAtPoint(pt);
+		int col = columnAtPoint(pt);
+		boolean insertRow = false;
+		boolean insertColumn = false;
+		DropMode mode = getDropMode();
+		
+		switch (mode) {
+		case INSERT:
+			// determine if INSERT_ROWS or INSERT_COLS
+			if (row < 0) {
+				mode = DropMode.INSERT_ROWS;
+			} else if (col < 0) {
+				mode = DropMode.INSERT_COLS;
+			} else {
+				Rectangle cell = table.getCellRect(row, col, true);
+				int dx = Math.min(pt.x - cell.x, cell.x+cell.width - pt.x);
+				int dy = Math.min(pt.y - cell.y, cell.y+cell.height - pt.y);
+				mode = dy < dx ? DropMode.INSERT_ROWS : DropMode.INSERT_COLS;
+			}
+			break;
+		case ON_OR_INSERT:
+			// determine if ON or INSERT_ROWS or INSERT_COLS
+			if (row < 0) {
+				mode = DropMode.INSERT_ROWS;
+			} else if (col < 0) {
+				mode = DropMode.INSERT_COLS;
+			} else {
+				Rectangle cell = table.getCellRect(row, col, true);
+				int dx = Math.min(pt.x - cell.x, cell.x+cell.width - pt.x);
+				int dy = Math.min(pt.y - cell.y, cell.y+cell.height - pt.y);
+				if (dy < dx) {
+					mode = dy < cell.height/4 ? DropMode.INSERT_ROWS : DropMode.ON;
+				} else {
+					mode = dx < cell.width/4 ? DropMode.INSERT_COLS : DropMode.ON;
+				}
+			}
+			break;
+		case ON_OR_INSERT_ROWS:
+			// determine if ON or INSERT_ROWS
+			if (row < 0) {
+				mode = DropMode.INSERT_ROWS;
+			} else {
+				Rectangle cell = table.getCellRect(row, col, true);
+				int dy = Math.min(pt.y - cell.y, cell.y+cell.height - pt.y);
+				mode = dy < cell.height/4 ? DropMode.INSERT_ROWS : DropMode.ON;
+			}
+			break;
+		case ON_OR_INSERT_COLS:
+			// determin if ON or INSERT_COLS
+			if (col < 0) {
+				mode = DropMode.INSERT_COLS;
+			} else {
+				Rectangle cell = table.getCellRect(row, col, true);
+				int dx = Math.min(pt.x - cell.x, cell.x+cell.width - pt.x);
+				mode = dx < cell.width/4 ? DropMode.INSERT_COLS : DropMode.ON;
+			}
+			break;
+		}
+		
+		switch (mode) {
+		case ON:
+			if (row < 0) {
+				col = -1;
+			} else if (col < 0) {
+				row = -1;
+			} else {
+				path = getPathForRow(row);
+			}
+			break;
+		case INSERT_ROWS:
+			insertRow = true;
+			if (row < 0) {
+				row = getRowCount();
+				if (row == 0) {
+					// no rows, use root
+					path = new TreePath(adapter.treeRoot);
+				} else {
+					// set path to grandparent of the last row or the root if no grandparent
+					path = getPathForRow(row-1);
+					if (path.getPathCount() < 3) {
+						path = new TreePath(adapter.treeRoot);
+					} else {
+						path = path.getParentPath().getParentPath();
+					}
+				}
+				index = adapter.getChildCount(path.getLastPathComponent());
+			} else {
+				TreePath rowPath = getPathForRow(row);
+				path = rowPath.getParentPath();
+				index = path == null ? 0 : adapter.getIndexOfChild(
+						path.getLastPathComponent(),
+						rowPath.getLastPathComponent());
+				if (path == null) {
+					path = rowPath;
+					if (isRootVisible())
+						row = 1;
+				} else {
+					Rectangle cell = getCellRect(row, col, true);
+					if (pt.y > cell.y + cell.height/2) {
+						if (isExpanded(rowPath)) {
+							path = rowPath;
+							index = 0;
+						} else {
+							index++;
+						}
+						row++;
+					}
+				}
+			}
+			break;
+		case INSERT_COLS:
+			insertColumn = true;
+			if (row < 0) {
+				col = -1;
+			} else {
+				path = getPathForRow(row);
+				if (col < 0) {
+					col = columnModel.getColumnCount();
+				} else {
+					Rectangle cell = getCellRect(row, col, true);
+					if (pt.x > cell.x + cell.width/2)
+						col++;
+				}
+			}
+			break;
+		}
+		return new DropLocation(pt, path, index,
+				row, col, insertRow, insertColumn);
+	}
+	
+	private class DTDE extends DropTargetDragEvent {
+
+		DTDE(DropTargetDragEvent e) {
+			super(e.getDropTargetContext(), e.getLocation(),
+					e.getDropAction(), e.getSourceActions());
+			dtde = e;
+		}
+		
+		private DropTargetDragEvent dtde;
+
+		@Override
+		public void acceptDrag(int dragOperation) {
+			setDropLocation(dtde.getLocation());
+			dtde.acceptDrag(dragOperation);
+		}
+
+		@Override
+		public void rejectDrag() {
+			setDropLocation(null);
+			dtde.rejectDrag();
+		}
+		
+	}
+	
+	private class DT extends DropTarget {
+		
+		DT(DropTarget dt) {
+			super(dt.getComponent(), dt.getDefaultActions(), null);
+			delegate = dt;
+		}
+		
+		private DropTarget delegate;
+
+		@Override
+		public void dragEnter(DropTargetDragEvent e) {
+			dtde = new DTDE(e);
+			try {
+				delegate.dragEnter(dtde);
+			} finally {
+				dtde = null;
+			}
+		}
+
+		@Override
+		public void dragExit(DropTargetEvent dte) {
+			delegate.dragExit(dte);
+			setDropLocation(null);
+		}
+
+		@Override
+		public void dragOver(DropTargetDragEvent e) {
+			dtde = new DTDE(e);
+			try {
+				delegate.dragOver(dtde);
+			} finally {
+				dtde = null;
+			}
+		}
+
+		@Override
+		public void drop(DropTargetDropEvent dtde) {
+			delegate.drop(dtde);
+			setDropLocation(null);
+		}
+
+		@Override
+		public void dropActionChanged(DropTargetDragEvent dtde) {
+			delegate.dropActionChanged(dtde);
+		}
+
+		@Override
+		public void addDropTargetListener(DropTargetListener dtl)
+				throws TooManyListenersException {
+			delegate.addDropTargetListener(dtl);
+		}
+		
+		@Override
+		public void removeDropTargetListener(DropTargetListener dtl) {
+			delegate.removeDropTargetListener(dtl);
+		}
+		
+	}
+
+	// Fusion of JTable.DropLocation & JTree.DropLocation
+	public static final class DropLocation extends TransferHandler.DropLocation {
+		
+		DropLocation(Point pt, TreePath pth, int idx,
+				int row, int col, boolean insertRow, boolean insertColumn) {
+			super(pt);
+			path = pth;
+			index = idx;
+			this.row = row;
+			column = col;
+			isInsertRow = insertRow;
+			isInsertColumn = insertColumn;
+		}
+		
+		private final TreePath path;
+		
+		private final int index;
+		
+		private final int row;
+		
+		private final int column;
+		
+		private final boolean isInsertRow;
+		
+		private final boolean isInsertColumn;
+		
+		
+		public TreePath getPath() {
+			return path;
+		}
+		
+		public int getIndex() {
+			return index;
+		}
+		
+		public int getRow() {
+			return row;
+		}
+		
+		public int getColumn() {
+			return column;
+		}
+		
+		public boolean isInsertRow() {
+			return isInsertRow;
+		}
+		
+		public boolean isInsertColumn() {
+			return isInsertColumn;
+		}
+		
+		public boolean equals(DropLocation o) {
+			return o != null
+				&& row == o.row
+				&& column == o.column
+				&& isInsertRow == o.isInsertRow
+				&& isInsertColumn == o.isInsertColumn
+				&& index == o.index
+				&& (path == null ? o.path == null : path.equals(o.path));
+		}
+		
+	}
+	
 	
 }

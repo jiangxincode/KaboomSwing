@@ -2,9 +2,11 @@ package aephyr.swing.ui;
 
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.beans.PropertyChangeListener;
 
+import javax.swing.DropMode;
 import javax.swing.Scrollable;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableColumnModel;
@@ -21,6 +23,14 @@ public interface TableInterface extends Scrollable {
 	
 	public int convertColumnIndexToModel(int viewColumnIndex);
 	
+
+	public boolean getDragEnabled();
+	
+	public void setDragEnabled(boolean dragEnabled);
+	
+	public DropMode getDropMode();
+	
+	public void setDropMode(DropMode dropMode);
 	
 	
     public boolean getAutoCreateColumnsFromModel();
@@ -85,9 +95,15 @@ public interface TableInterface extends Scrollable {
 	public void removePropertyChangeListener(PropertyChangeListener l);
 	
 	
+	public int columnAtPoint(Point pt);
+	
+	public int rowAtPoint(Point pt);
+	
 	public Rectangle getCellRect(int row, int col, boolean includeSpacing);
 	
 	public void setRowHeight(int height);
+	
+	public int getRowHeight(int row);
 	
 	public void setRowHeight(int row, int height);
 	

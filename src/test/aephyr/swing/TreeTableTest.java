@@ -1,7 +1,11 @@
 package test.aephyr.swing;
 
 import java.awt.*;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
 import java.awt.event.*;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -12,19 +16,13 @@ import java.util.Map;
 import java.util.Random;
 
 import javax.swing.*;
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
-import javax.swing.event.MenuKeyEvent;
-import javax.swing.event.MenuKeyListener;
-import javax.swing.table.DefaultTableColumnModel;
-import javax.swing.table.TableColumn;
-import javax.swing.table.TableColumnModel;
-import javax.swing.tree.DefaultMutableTreeNode;
-import javax.swing.tree.DefaultTreeModel;
-import javax.swing.tree.MutableTreeNode;
-import javax.swing.tree.TreePath;
+import javax.swing.event.*;
+import javax.swing.table.*;
+import javax.swing.tree.*;
 
 import aephyr.swing.TreeTable;
+import aephyr.swing.event.TreeTableSorterEvent;
+import aephyr.swing.event.TreeTableSorterListener;
 import aephyr.swing.mnemonic.*;
 import aephyr.swing.treetable.*;
 
@@ -64,26 +62,53 @@ public class TreeTableTest implements Runnable, ItemListener {
 		JLabel corner = new JLabel(" ");
 		corner.addMouseListener(new MouseAdapter() {
 			public void mouseClicked(MouseEvent e) {
-				RowSorter<?> sorter = treeTable.getRowSorter();
+				TreeTableSorter<?,?> sorter = treeTable.getRowSorter();
 				if (sorter != null)
 					sorter.setSortKeys(null);
 			}
 		});
 		scroller.setCorner(JScrollPane.UPPER_TRAILING_CORNER, corner);
+		if (!PROPERTY_TABLE)
+			scroller.setRowHeaderView(new RowHeader(treeTable.getTableModel()));
+		Actions act = new Actions(Actions.PRINT_LINE);
+		treeTable.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_F1, 0), act);
+		treeTable.getActionMap().put(act, act);
+		
+		table = new JTable(treeTable.getTableModel());
+		table.setDropMode(DropMode.INSERT_ROWS);
+		table.setDragEnabled(true);
+		table.setTransferHandler(new DummyTransferHandler());
+		table.setPreferredScrollableViewportSize(new Dimension(100, 100));
+		
+		tree = new JTree(treeTable.getTreeTableModel());
+		tree.setDropMode(DropMode.INSERT);
+		tree.setDragEnabled(true);
+		tree.setTransferHandler(new DummyTransferHandler());
+		JScrollPane treeScroller = new JScrollPane(tree);
+		treeScroller.setPreferredSize(new Dimension(200, 500));
 		
 		frame = new JFrame(getClass().getSimpleName());
 		frame.setJMenuBar(createMenuBar());
 		frame.add(scroller, BorderLayout.CENTER);
+		frame.add(new JScrollPane(table), BorderLayout.SOUTH);
+		frame.add(treeScroller, BorderLayout.EAST);
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		frame.pack();
 		frame.setLocationRelativeTo(null);
 		new MnemonicGenerator().addMnemonics(frame.getRootPane());
 		frame.setVisible(true);
+		
+//		System.out.println("TreeTable dropTarget" + treeTable.getDropTarget());
+//		System.out.println("Table dropTarget" + table.getDropTarget());
 	}
 	
 	private JFrame frame;
 	
 	private TreeTable treeTable;
+	
+	private JTable table;
+	
+	private JTree tree;
 	
 	private TreeTable createTreeTable() {
 		
@@ -93,9 +118,165 @@ public class TreeTableTest implements Runnable, ItemListener {
 
 		TreeTable treeTable = new TreeTable(createNode(4, COLUMN_COUNT));
 		treeTable.setAutoCreateRowSorter(true);
-		treeTable.getRowSorter().setSortsOnUpdates(true);
+		((DefaultTreeTableSorter)treeTable.getRowSorter()).setSortsOnUpdates(true);
+		
+		treeTable.setDragEnabled(true);
+		treeTable.setDropMode(DropMode.INSERT_ROWS);
+		treeTable.setTransferHandler(new DummyTransferHandler());
+		
+//		treeTable.getColumnModel().getColumn(0).setCellEditor(new TreeEditor());
+
 		return treeTable;
 	}
+	
+	private static class DummyTransferHandler extends TransferHandler {
+		
+		@Override
+		public boolean canImport(TransferSupport support) {
+//			if (support.isDrop()) {
+//				return support.getDropLocation().getDropPoint().x < 200;
+//			}
+			return true;
+		}
+		
+		@Override
+		protected Transferable createTransferable(JComponent c) {
+			return new StringSelection("dummy");
+		}
+		
+		@Override
+        public int getSourceActions(JComponent c) {
+    	    return COPY | MOVE;
+    	}
+	}
+	
+	// TODO: Header row heights aren't always in sync
+	// with the table row heights when sorting.
+	private class RowHeader extends JTable {
+		
+		RowHeader(TableModel tm) {
+			super(new RowModel(tm));
+			setAutoCreateColumnsFromModel(false);
+			setRowMargin(0);
+			getColumnModel().setColumnMargin(0);
+			setFocusable(false);
+			updateRowHeight();
+			Handler h = new Handler();
+			if (treeTable.getRowSorter() != null)
+				treeTable.getRowSorter().addTreeTableSorterListener(h);
+			treeTable.addPropertyChangeListener("rowHeight", h);
+			treeTable.addPropertyChangeListener("rowSorter", h);
+		}
+		
+		private boolean variableRowHeights;
+		
+		public void updateUI() {
+			super.updateUI();
+			TableCellRenderer r = getTableHeader().getDefaultRenderer();
+			if (r instanceof JLabel) {
+				JLabel l = (JLabel)r;
+				l.setHorizontalAlignment(JLabel.CENTER);
+			}
+			getColumnModel().getColumn(0).setCellRenderer(r);
+			Dimension size = r.getTableCellRendererComponent(
+					RowHeader.this, "9999", false, false, -1, -1).getPreferredSize();
+			setPreferredScrollableViewportSize(size);
+			repaint();
+		}
+
+		
+		private void updateRowHeight() {
+			int rh = treeTable.getRowHeight();
+			variableRowHeights = rh <= 0;
+			if (variableRowHeights) {
+				updateRowHeights(0, getRowCount()-1);
+			} else {
+				setRowHeight(rh);
+			}
+		}
+		
+		public void tableChanged(TableModelEvent e) {
+			super.tableChanged(e);
+			if (e.getType() != TableModelEvent.DELETE) {
+				updateRowHeights(e.getFirstRow(), e.getLastRow());
+			}
+		}
+		
+		private void updateRowHeights(final int firstRow, final int lastRow) {
+			if (!variableRowHeights || firstRow < 0)
+				return;
+			SwingUtilities.invokeLater(new Runnable() {
+				public void run() {
+					// safety precaution
+					int last = Math.min(lastRow, getRowCount()-1);
+					for (int row=firstRow; row<=last; row++) {
+						setRowHeight(row, treeTable.getRowHeight(row));
+					}
+				}
+			});
+		}
+		
+		class Handler implements PropertyChangeListener, TreeTableSorterListener {
+			
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				String name = evt.getPropertyName();
+				if (name == "rowHeight") {
+					updateRowHeight();
+				} else if (name == "rowSorter") {
+					TreeTableSorter<?,?> sorter = (TreeTableSorter<?,?>)evt.getOldValue();
+					if (sorter != null)
+						sorter.removeTreeTableSorterListener(this);
+					sorter = (TreeTableSorter<?,?>)evt.getNewValue();
+					if (sorter != null)
+						sorter.addTreeTableSorterListener(this);
+				}
+			}
+			
+			@Override
+			public void sorterChanged(TreeTableSorterEvent e) {
+				if (e.getType() == TreeTableSorterEvent.Type.SORT_ORDER_CHANGED) {
+					updateRowHeights(0, getRowCount()-1);
+				}
+			}
+		}
+		
+	}
+	
+	private static class RowModel extends AbstractTableModel implements TableModelListener {
+		
+		RowModel(TableModel tm) {
+			model = tm;
+			tm.addTableModelListener(this);
+		}
+		
+		private TableModel model;
+
+		@Override
+		public int getColumnCount() {
+			return 1;
+		}
+
+		@Override
+		public int getRowCount() {
+			return model.getRowCount();
+		}
+
+		@Override
+		public Object getValueAt(int rowIndex, int columnIndex) {
+			return rowIndex;
+		}
+
+		@Override
+		public void tableChanged(TableModelEvent e) {
+			if (e.getType() != TableModelEvent.UPDATE)
+				fireTableChanged(new TableModelEvent(this,
+						e.getFirstRow(), e.getLastRow(), 0, e.getType()));
+		}
+		
+	}
+	
+	
 	
 	private class Actions extends AbstractAction {
 		
@@ -106,6 +287,8 @@ public class TreeTableTest implements Runnable, ItemListener {
 		static final String SORT = "Sort Lead Column";
 		
 		static final String UNSORT = "Unsort";
+		
+		static final String PRINT_LINE = "Print Line";
 		
 		Actions(boolean next) {
 			super(next ? NEXT_VALUE : PREVIOUS_VALUE);
@@ -123,6 +306,8 @@ public class TreeTableTest implements Runnable, ItemListener {
 				t.getRowSorter().toggleSortOrder(col);
 			} else if (name == UNSORT) {
 				t.getRowSorter().setSortKeys(null);
+			} else if (name == PRINT_LINE) {
+				System.out.println();
 			} else {
 				TreePath p = t.getLeadSelectionPath();
 				if (p != null && t.isPathSelected(p) &&
@@ -197,13 +382,18 @@ public class TreeTableTest implements Runnable, ItemListener {
 		return treeTable;
 	}
 	
+	private static int createInt() {
+		return 15 + random.nextInt(25);	
+	}
+	
 	private static DefaultTreeTableNode createNode(int depth, int columns) {
 		Object[] rowData = new Object[columns];
 		for (int i=0; i<columns-2; i++)
 			rowData[i] = createString();
-		rowData[columns-2] = 15 + random.nextInt(25);
+		rowData[columns-2] = createInt();
 		rowData[columns-1] = random.nextBoolean();
 		DefaultTreeTableNode node = new DefaultTreeTableNode(rowData);
+		node.setUserObject(rowData[0]);
 		if (--depth >= 0)
 			for (int i=3+random.nextInt(5); --i>=0;)
 				node.add(createNode(depth, columns));
@@ -240,6 +430,7 @@ public class TreeTableTest implements Runnable, ItemListener {
 		JMenu properties = new JMenu("Properties");
 		JMenu booleans = new JMenu("Booleans");
 		JMenu integers = new JMenu("Integers");
+		JMenu enumerations = new JMenu("Enumerations");
 		itemLis = new ItemListener() {
 			public void itemStateChanged(ItemEvent e) {
 				changeProperty(((JMenuItem)e.getSource()).getText(), 
@@ -251,9 +442,55 @@ public class TreeTableTest implements Runnable, ItemListener {
 		integers.addSeparator();
 		add(null, integers, treeTable.getColumnModel(), null, Collections.emptyList());
 		
+		JMenu autoResizeMode = new JMenu("AutoResizeMode");
+		ButtonGroup resizeModes = new ButtonGroup();
+		itemLis = new ItemListener() {
+			public void itemStateChanged(ItemEvent e) {
+				if (e.getStateChange() == ItemEvent.SELECTED) {
+					JMenuItem item = (JMenuItem)e.getSource();
+					int m = (Integer)getStaticField(
+							JTable.class, item.getText());
+					treeTable.setAutoResizeMode(m);
+					table.setAutoResizeMode(m);
+				}
+			}
+		};
+		int resizeMode = treeTable.getAutoResizeMode();
+		autoResizeMode.add(createEnumButton("AUTO_RESIZE_ALL_COLUMNS",
+				resizeMode == JTable.AUTO_RESIZE_ALL_COLUMNS, resizeModes, itemLis));
+		autoResizeMode.add(createEnumButton("AUTO_RESIZE_LAST_COLUMN",
+				resizeMode == JTable.AUTO_RESIZE_LAST_COLUMN, resizeModes, itemLis));
+		autoResizeMode.add(createEnumButton("AUTO_RESIZE_NEXT_COLUMN",
+				resizeMode == JTable.AUTO_RESIZE_NEXT_COLUMN, resizeModes, itemLis));
+		autoResizeMode.add(createEnumButton("AUTO_RESIZE_OFF",
+				resizeMode == JTable.AUTO_RESIZE_OFF, resizeModes, itemLis));
+		autoResizeMode.add(createEnumButton("AUTO_RESIZE_SUBSEQUENT_COLUMNS",
+				resizeMode == JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS, resizeModes, itemLis));
+		enumerations.add(autoResizeMode);
+
+		JMenu dropMode = new JMenu("DropMode");
+		ButtonGroup dropModes = new ButtonGroup();
+		itemLis = new ItemListener() {
+			public void itemStateChanged(ItemEvent e) {
+				if (e.getStateChange() == ItemEvent.SELECTED) {
+					JMenuItem item = (JMenuItem)e.getSource();
+					DropMode dm = (DropMode)getStaticField(
+							DropMode.class, item.getText());
+					treeTable.setDropMode(dm);
+					table.setDropMode(dm);
+				}
+			}
+		};
+		DropMode mode = treeTable.getDropMode();
+		for (DropMode dm : DropMode.values()) {
+			if (dm != DropMode.USE_SELECTION)
+				dropMode.add(createEnumButton(dm.name(), mode == dm, dropModes, itemLis));
+		}
+		enumerations.add(dropMode);
 		
 		properties.add(booleans);
 		properties.add(integers);
+		properties.add(enumerations);
 		bar.add(properties);
 		
 		if (PROPERTY_TABLE)
@@ -300,12 +537,27 @@ public class TreeTableTest implements Runnable, ItemListener {
 		value[idx] = obj;
 	}
 	
+	private static JRadioButtonMenuItem createEnumButton(
+			String name, boolean sel, ButtonGroup group, ItemListener lis) {
+		JRadioButtonMenuItem item = new JRadioButtonMenuItem(name, sel);
+		group.add(item);
+		item.addItemListener(lis);
+		return item;
+	}
 	
+	private static Object getStaticField(Class<?> cls, String name) {
+		try {
+			return cls.getDeclaredField(name).get(null);
+		} catch (Exception e) {
+			throw new RuntimeException(e);
+		}
+	}
 	
 	private static void add(JMenu booleans, JMenu integers, Object obj, ItemListener lis, List<?> ignore) {
 		HashMap<String,Object[]> bools = booleans == null ? null : new HashMap<String,Object[]>();
 		HashMap<String,Object[]> ints = new HashMap<String,Object[]>();
-		for (Method m : obj.getClass().getMethods()) {
+		Class<?> cls = Node.getRealClass(obj.getClass());
+		for (Method m : cls.getMethods()) {
 			if ((m.getModifiers() & java.lang.reflect.Modifier.PUBLIC) == 0)
 				continue;
 			String name = m.getName();
@@ -360,7 +612,7 @@ public class TreeTableTest implements Runnable, ItemListener {
 					Method method = (Method)m[0];
 					JMenuItem item = new JCheckBoxMenuItem(entry.getKey(), (Boolean)method.invoke(obj));
 					item.addItemListener(lis);
-					if (((Method)m[1]).getDeclaringClass() != obj.getClass()) {
+					if (((Method)m[1]).getDeclaringClass() != cls) {
 						secondary.add(item);
 					} else {
 						booleans.add(item);
@@ -425,9 +677,49 @@ public class TreeTableTest implements Runnable, ItemListener {
 					new VariableRowHeightRenderer() : null);
 			treeTable.setRowHeight(-treeTable.getRowHeight());
 		} else if (txt == RENDERER_TREE) {
-			setRenderer(0, sel ? new DefaultTreeTableCellRenderer() : null);
+			setRenderer(0, sel ? new TreeRenderer() : null);
 		}
 	}
+	
+	private static class TreeRenderer extends DefaultTreeTableCellRenderer {
+		private Font bold;
+		
+		protected void setValue(Object value) {
+			setText(value.toString());
+			if (value instanceof Header) {
+				if (bold == null)
+					bold = getFont().deriveFont(Font.BOLD);
+				setFont(bold);
+			}
+		}
+	}
+	
+	private static class TreeEditor extends DefaultTreeTableCellEditor {
+
+		public TreeEditor() {
+			super(new JTextField());
+
+		}
+
+//		@Override
+//		public Component getTreeTableCellEditorComponent(TreeTable treeTable,
+//				Object value, boolean isSelected, int row, int column) {
+//			// TODO Auto-generated method stub
+//			return null;
+//		}
+//
+//		@Override
+//		public Component getTreeTableCellEditorComponent(TreeTable treeTable,
+//				Object value, boolean isSelected, int row, int column,
+//				boolean expanded, boolean leaf) {
+//			// TODO Auto-generated method stub
+//			return null;
+//		}
+		
+	}
+	
+	
+	
 	
 	private static class VariableRowHeightRenderer extends DefaultTreeTableCellRenderer {
 		
@@ -487,19 +779,48 @@ public class TreeTableTest implements Runnable, ItemListener {
 		}
 		
 		void changeLeadStructure(TreeTable treeTable) {
-			
+			TreePath path = treeTable.getLeadSelectionPath();
+			if (path == null) {
+				error("No Lead Path.");
+				return;
+			}
+			DefaultTreeModel tm = (DefaultTreeModel)treeTable.getTreeModel();
+			DefaultTreeTableNode n = (DefaultTreeTableNode)path.getLastPathComponent();
+			n.removeAllChildren();
+			DefaultTreeTableNode a = createNode(2, COLUMN_COUNT);
+			for (int i=a.getChildCount(); --i>=0;)
+				n.add((MutableTreeNode)a.getChildAt(i));
+			tm.nodeStructureChanged(n);
 		}
 		
 		void addNodeAfterLead(TreeTable treeTable) {
-			
+			TreePath path = treeTable.getLeadSelectionPath();
+			if (path == null) {
+				error("No Lead Path.");
+				return;
+			}
+			DefaultTreeModel tm = (DefaultTreeModel)treeTable.getTreeModel();
+			DefaultTreeTableNode parent;
+			int index;
+			if (path.getPathCount() == 1) {
+				parent = (DefaultTreeTableNode)path.getLastPathComponent();
+				index = 0;
+			} else {
+				parent = (DefaultTreeTableNode)path.getParentPath().getLastPathComponent();
+				index = parent.getIndex((TreeNode)path.getLastPathComponent()) + 1;
+			}
+			tm.insertNodeInto(createNode(1, COLUMN_COUNT), parent, index);
 		}
 		
 		void addNodeToRoot(TreeTable treeTable) {
-			
+			DefaultTreeModel tm = (DefaultTreeModel)treeTable.getTreeModel();
+			DefaultTreeTableNode parent = (DefaultTreeTableNode)tm.getRoot();
+			tm.insertNodeInto(createNode(3, COLUMN_COUNT), parent, parent.getChildCount());
 		}
 		
 		void changeRoot(TreeTable treeTable) {
-			
+			DefaultTreeModel tm = (DefaultTreeModel)treeTable.getTreeModel();
+			tm.setRoot(createNode(4, COLUMN_COUNT));
 		}
 		
 		void modify(TreeTable treeTable) {
@@ -536,21 +857,21 @@ public class TreeTableTest implements Runnable, ItemListener {
 			for (; i<paths.length; i++) {
 				TreePath p = paths[i].getParentPath();
 				if (!parent.equals(p)) {
-					modify(tm, cm, parent, paths, i - 1, last);
+					modify(treeTable, tm, cm, parent, paths, i - 1, last);
 					last = i - 1;
 					parent = p;
 				}
 			}
-			modify(tm, cm, parent, paths, i - 1, last);
+			modify(treeTable, tm, cm, parent, paths, i - 1, last);
 			if (this == REMOVE_NODE)
 				treeTable.setSelectionRow(Math.min(row, treeTable.getRowCount()-1));
 		}
 		
-		void modify(DefaultTreeModel tm, DefaultTreeColumnModel cm,
+		void modify(TreeTable treeTable, final DefaultTreeModel tm, final DefaultTreeColumnModel cm,
 				TreePath parent, TreePath[] paths, int i, int last) {
-			MutableTreeTableNode[] childNodes = new MutableTreeTableNode[i-last];
+			final DefaultTreeTableNode[] childNodes = new DefaultTreeTableNode[i-last];
 			int[] childIndices = new int[i-last];
-			MutableTreeNode parentNode = (MutableTreeNode)parent.getLastPathComponent();
+			final MutableTreeNode parentNode = (MutableTreeNode)parent.getLastPathComponent();
 			for (int j=i; j>last; j--) {
 				int idx = j-last-1;
 				Object node = paths[j].getLastPathComponent();
@@ -558,15 +879,31 @@ public class TreeTableTest implements Runnable, ItemListener {
 			}
 			Arrays.sort(childIndices);
 			for (int j=childIndices.length; --j>=0;)
-				childNodes[j] = (MutableTreeTableNode)tm.getChild(parentNode, childIndices[j]);
+				childNodes[j] = (DefaultTreeTableNode)tm.getChild(parentNode, childIndices[j]);
 			switch (this) {
 			case ADD_NODE:
 				int count = 0;
 				for (int j=0; j<childIndices.length; j++) {
 					childIndices[j] += count++;
-					parentNode.insert(createNode(1, COLUMN_COUNT), childIndices[j]);
+					DefaultTreeTableNode node = createNode(1, COLUMN_COUNT);
+					node.setValueAt(new Header(node.getValueAt(0).toString()), 0);
+					childNodes[j] = node;
+					parentNode.insert(node, childIndices[j]);
 				}
 				tm.nodesWereInserted(parentNode, childIndices);
+				ActionListener lis = new ActionListener() {
+					public void actionPerformed(ActionEvent e) {
+						for (DefaultTreeTableNode node : childNodes) {
+							int idx = tm.getIndexOfChild(parentNode, node);
+							if (idx < 0)
+								continue;
+							cm.setValueAt(cm.getValueAt(node, 0).toString(), node, 0);
+						}
+					}
+				};
+				Timer timer = new Timer(600, lis);
+				timer.setRepeats(false);
+				timer.start();
 				break;
 			case REMOVE_NODE:
 //				System.err.println("remove " + Arrays.toString(childIndices) + " " + string(cm, childNodes));
@@ -575,15 +912,26 @@ public class TreeTableTest implements Runnable, ItemListener {
 				tm.nodesWereRemoved(parentNode, childIndices, childNodes);
 				break;
 			case CHANGE_NODE:
-				for (int j=childNodes.length; --j>=0;)
-					childNodes[j].setValueAt(createString(), 0);
+				int col = treeTable.getColumnModel().getSelectionModel().getLeadSelectionIndex();
+				col = col < 0 || !treeTable.isColumnFocusEnabled() ? 0 :
+					treeTable.convertColumnIndexToModel(col);
+				Class<?> cls = cm.getColumnClass(col);
+				for (int j=childNodes.length; --j>=0;) {
+					childNodes[j].setValueAt(createValue(cls), col);
+				}
 				tm.nodesChanged(parentNode, childIndices);
 				break;
 			}
 
 		}
 		
-		
+		private Object createValue(Class<?> cls) {
+			if (cls == Boolean.class)
+				return random.nextBoolean();
+			if (cls == Integer.class)
+				return createInt();
+			return createString();
+		}
 		
 		void error(String str) {
 			JOptionPane.showConfirmDialog(null, str, str, JOptionPane.OK_CANCEL_OPTION);
@@ -778,7 +1126,7 @@ class Node extends DefaultMutableTreeNode {
 		return super.getChildCount();
 	}
 	
-	private static Class<?> getRealClass(Class<?> cls) {
+	static Class<?> getRealClass(Class<?> cls) {
 		while ("".equals(cls.getSimpleName()))
 			cls = cls.getSuperclass();
 		return cls;
