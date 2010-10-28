@@ -27,6 +27,8 @@ public interface TreeInterface extends Scrollable {
 	
 	public void expandRow(int row);
 	
+	public void makeVisible(TreePath path);
+	
 	
 
 	public Rectangle getPathBounds(TreePath path);

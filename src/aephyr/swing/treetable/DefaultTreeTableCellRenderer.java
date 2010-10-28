@@ -4,19 +4,11 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Rectangle;
 
-import javax.swing.Icon;
 import javax.swing.JLabel;
 import javax.swing.JTable;
-import javax.swing.JTree;
-import javax.swing.UIManager;
-import javax.swing.border.Border;
-import javax.swing.border.EmptyBorder;
-import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableCellRenderer;
-import javax.swing.tree.TreeCellRenderer;
 
 import aephyr.swing.TreeTable;
-import aephyr.swing.TreeTable.DropLocation;
 
 public class DefaultTreeTableCellRenderer extends JLabel
 		implements TreeTableCellRenderer, TableCellRenderer {

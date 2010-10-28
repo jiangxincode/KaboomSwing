@@ -70,7 +70,7 @@ public class DefaultTreeColumnModel extends AbstractTreeColumnModel {
 	public void setValueAt(Object value, Object node, int column) {
 		((MutableTreeTableNode)node).setValueAt(
 				convertValue(value, node, column), column);
-		fireRowChanged(pathToRoot(root, (TreeNode)node), column);
+		fireTreeColumnChanged(pathToRoot(root, (TreeNode)node), column);
 	}
 	
 	@Override

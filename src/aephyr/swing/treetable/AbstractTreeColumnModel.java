@@ -66,11 +66,11 @@ public abstract class AbstractTreeColumnModel implements TreeColumnModel {
 		listenerList.remove(TreeColumnModelListener.class, l);
 	}
 	
-	protected void fireRowChanged(TreePath path, int column) {
-		fireRowChanged(listenerList, this, path, column);
+	protected void fireTreeColumnChanged(TreePath path, int column) {
+		fireTreeColumnChanged(listenerList, this, path, column);
 	}
 	
-	public static void fireRowChanged(EventListenerList listenerList,
+	public static void fireTreeColumnChanged(EventListenerList listenerList,
 			TreeColumnModel source, TreePath path, int column) {
 		Object[] listeners = listenerList.getListenerList();
 		TreeColumnModelEvent e = null;
@@ -85,8 +85,9 @@ public abstract class AbstractTreeColumnModel implements TreeColumnModel {
 	
 	
 	public static TreePath pathToRoot(Object root, TreeNode node) {
-		if (node == root)
+		if (node == root || node.getParent() == null) {
 			return new TreePath(node);
+		}
 		return pathToRoot(root, node.getParent()).pathByAddingChild(node);
 	}
 	

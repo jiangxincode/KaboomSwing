@@ -41,7 +41,7 @@ public class TreeTableTest implements Runnable, ItemListener {
 	private static final String RENDERER_VARIABLE_HEIGHT = "C: Variable Row Height Renderer";
 
 	public static void main(String[] args) throws Exception {
-//		Utilities.setNimbusLookAndFeel();
+		Utilities.setNimbusLookAndFeel();
 //		UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
 		SwingUtilities.invokeLater(new TreeTableTest());
 	}
@@ -1079,7 +1079,7 @@ class PropertyModel extends AbstractTreeColumnModel {
 	public void setValueAt(Object value, Object node, int column) {
 		PropertyNode pn = (PropertyNode)node;
 		if (pn.setValue(value))
-			fireRowChanged(pathToRoot(root, pn), column);
+			fireTreeColumnChanged(pathToRoot(root, pn), column);
 	}
 	
 }

@@ -11,11 +11,9 @@ import java.util.Map;
 
 import javax.swing.DefaultRowSorter;
 import javax.swing.RowFilter;
-import javax.swing.RowSorter;
 import javax.swing.SortOrder;
 import javax.swing.RowSorter.SortKey;
 import javax.swing.event.EventListenerList;
-import javax.swing.event.RowSorterListener;
 import javax.swing.tree.TreeModel;
 import javax.swing.tree.TreePath;
 

@@ -1,5 +1,7 @@
 package aephyr.swing.ui;
 
+import java.awt.Rectangle;
+
 import javax.swing.plaf.ComponentUI;
 import javax.swing.tree.TreePath;
 
@@ -36,4 +38,11 @@ public abstract class TreeTableUI extends ComponentUI {
 	public abstract TreeTableCellRenderer getDefaultRenderer(Class<?> columnClass);
 
 	public abstract TreeTableCellEditor getDefaultEditor(Class<?> columnClass);
+	
+	public abstract Rectangle getPathBounds(TreeTable treeTable, TreePath path);
+	
+	public abstract TreePath getPathForLocation(TreeTable treeTable, int x, int y);
+	
+	public abstract TreePath getClosestPathForLocation(TreeTable treeTable, int x, int y);
+	
 }
