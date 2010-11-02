@@ -477,6 +477,15 @@ public class TreeTable extends JComponent implements Scrollable {
 		}
 	}
 	
+	/**
+	 * Provides extra information about the mouse event, see
+	 * TreeTableMouseEvent for more details. Consuming the
+	 * TreeTableMouseEvent will also consume the source MouseEvent.
+	 * TreeTableMouseListeners are notified before MouseListeners.
+	 * 
+	 * @see #addTreeTableMouseMotionListener(TreeTableMouseMotionListener)
+	 * @see #addMouseListener(MouseListener)
+	 */
 	public void addTreeTableMouseListener(TreeTableMouseListener l) {
 		addListener(TreeTableMouseListener.class, l);
 	}
@@ -485,6 +494,15 @@ public class TreeTable extends JComponent implements Scrollable {
 		removeListener(TreeTableMouseListener.class, l);
 	}
 	
+	/**
+	 * Provides extra information about the mouse event, see
+	 * TreeTableMouseEvent for more details. Consuming the
+	 * TreeTableMouseEvent will also consume the source MouseEvent.
+	 * TreeTableMouseMotionListeners are notified before MouseMotionListeners.
+	 * 
+	 * @see #addTreeTableMouseListener(TreeTableMouseMotionListener)
+	 * @see #addMouseMotionListener(MouseListener)
+	 */
 	public void addTreeTableMouseMotionListener(TreeTableMouseMotionListener l) {
 		addListener(TreeTableMouseMotionListener.class, l);
 	}
