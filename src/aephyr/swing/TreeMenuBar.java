@@ -152,6 +152,8 @@ public class TreeMenuBar extends CurlMenuBar {
 		this.model = model;
 		if (model != null) {
 			model.addTreeModelListener(handler);
+			if (tree != null)
+				tree.setModel(model);
 		} else if (tree != null) {
 			tree.setModel(new DefaultTreeModel(new DefaultMutableTreeNode()));
 		}

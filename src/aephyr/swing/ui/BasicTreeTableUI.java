@@ -5,6 +5,7 @@ import java.awt.Component;
 import java.awt.ComponentOrientation;
 import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
@@ -56,6 +57,7 @@ import javax.swing.event.ChangeEvent;
 import javax.swing.event.RowSorterListener;
 import javax.swing.event.TableColumnModelEvent;
 import javax.swing.event.TableModelEvent;
+import javax.swing.plaf.ColorUIResource;
 import javax.swing.plaf.TreeUI;
 import javax.swing.plaf.UIResource;
 import javax.swing.plaf.basic.BasicTreeUI;
@@ -79,6 +81,7 @@ import com.sun.java.swing.Painter;
 
 import aephyr.swing.TreeTable;
 import aephyr.swing.TreeTable.DropLocation;
+import aephyr.swing.treetable.CellEditorContainer;
 import aephyr.swing.treetable.DefaultTreeTableCellEditor;
 import aephyr.swing.treetable.DefaultTreeTableCellRenderer;
 import aephyr.swing.treetable.TreeColumnModel;
@@ -115,7 +118,13 @@ public class BasicTreeTableUI extends TreeTableUI {
 	protected void installDefaults() {
 		LookAndFeel.installColorsAndFont(treeTable,
 				"Table.background", "Table.foreground", "Table.font");
-		
+		if (treeTable.getAlternateRowColor() == null || treeTable.getAlternateRowColor() instanceof UIResource) {
+			Color c = UIManager.getColor("Table.alternateRowColor");
+			if (c != null && isNimbus()) {
+				c = new ColorUIResource(c.getRed(), c.getGreen(), c.getBlue());
+			}
+			treeTable.setAlternateRowColor(c);
+		}
 	}
 	
 	protected void uninstallDefaults() {
@@ -232,6 +241,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 	private PropertyChangeListener propertyChangeListener;
 	
 	public void updateUI() {
+		installDefaults();
 		tree.updateUI();
 		table.updateUI();
 		defaultTreeCellRenderer.updateUI();
@@ -435,6 +445,23 @@ public class BasicTreeTableUI extends TreeTableUI {
 		} finally {
 			cg.dispose();
 		}
+		
+		// JTable doesn't paint anything for the editing cell,
+		// so painting the background color is placed here
+		if (table.isEditing()) {
+			int col = table.getEditingColumn();
+			int row = table.getEditingRow();
+			boolean sel = treeTableCellRenderer.isSelected(
+					tree.isRowSelected(row) && table.isColumnSelected(col));
+			TreeTableCellRenderer r = treeTable.getCellRenderer(row, col);
+			Component c = r.getTreeTableCellRendererComponent(
+						treeTable, null, sel, false, row, col);
+			// TODO, create CellRendererPane for TreeTable, for use by the focus renderer too.
+			CellRendererPane rp = (CellRendererPane)table.getComponent(0);
+			Rectangle cell = table.getCellRect(row, col, true);
+			rp.paintComponent(g, c, table, cell.x, cell.y, cell.width, cell.height, true);
+			rp.removeAll();
+		}
 	}
 	
 	
@@ -471,27 +498,6 @@ public class BasicTreeTableUI extends TreeTableUI {
 		}
 		
 		treeTableCellRenderer.prepareForTree();
-
-		// JTable doesn't paint anything for the editing cell,
-		// so painting the background color behind the tree handle
-		// margin is placed here
-		if (table.isEditing()) {
-			int col = table.getEditingColumn();
-			if (col == treeTable.getHierarchialColumn()) {
-				int row = table.getEditingRow();
-				boolean sel = treeTableCellRenderer.isSelected(
-						tree.isRowSelected(row) && table.isColumnSelected(col));
-				TreeTableCellRenderer r = treeTable.getCellRenderer(row, col);
-				Component c = r.getTreeTableCellRendererComponent(
-							treeTable, "", sel, false, row, col);
-				// TODO, create CellRendererPane for TreeTable, for use by the focus renderer too.
-				CellRendererPane rp = (CellRendererPane)table.getComponent(0);
-				Rectangle b = tree.getRowBounds(row);
-				rp.paintComponent(g, c, table, x, b.y, b.x, b.height, true);
-				rp.removeAll();
-			}
-		}
-
 		Graphics cg = g.create(x, 0, tree.getWidth(), tree.getHeight());
 		try {
 			cg.clipRect(clipX, 0, clipW, tree.getHeight());
@@ -691,12 +697,14 @@ public class BasicTreeTableUI extends TreeTableUI {
 	
 	
 	@Override
-	public TreeTableCellRenderer getDefaultRenderer(Class<?> columnClass) {
+	public TreeTableCellRenderer getDefaultRenderer(TreeTable treeTable, Class<?> columnClass) {
+		treeTableCellRenderer.loadRenderer(columnClass);
 		return treeTableCellRenderer;
 	}
 	
 	@Override
-	public TreeTableCellEditor getDefaultEditor(Class<?> columnClass) {
+	public TreeTableCellEditor getDefaultEditor(TreeTable treeTable, Class<?> columnClass, int column) {
+		treeTableCellEditor.loadEditor(columnClass, column);
 		return treeTableCellEditor;
 	}
 	
@@ -850,6 +858,19 @@ public class BasicTreeTableUI extends TreeTableUI {
 			}
 		}
 		
+		public Color getBackground() {
+			return treeTable.getBackground();
+		}
+		
+		public Color getForeground() {
+			return treeTable.getForeground();
+		}
+		
+		public Font getFont() {
+			return treeTable.getFont();
+		}
+
+		
 	}
 	
 	private class Table extends JTable implements TableInterface, ProcessKeyBinding {
@@ -967,6 +988,18 @@ public class BasicTreeTableUI extends TreeTableUI {
 			} else {
 				treeTable.remove(comp);
 			}
+		}
+		
+		public Color getBackground() {
+			return treeTable.getBackground();
+		}
+		
+		public Color getForeground() {
+			return treeTable.getForeground();
+		}
+		
+		public Font getFont() {
+			return treeTable.getFont();
 		}
 		
 		
@@ -1189,9 +1222,6 @@ public class BasicTreeTableUI extends TreeTableUI {
 			rowSelection.put(expanded, UIManager.get(expanded));
 			rowSelection.put(collapsedSelected, UIManager.get(collapsedSelected));
 			rowSelection.put(expandedSelected, UIManager.get(expandedSelected));
-			alternateRowColor = UIManager.getColor("Table.alternateRowColor");
-			if (alternateRowColor != null)
-				alternateRowColor = createColor(alternateRowColor);
 		}
 		
 		private UIDefaults current;
@@ -1201,10 +1231,6 @@ public class BasicTreeTableUI extends TreeTableUI {
 		private UIDefaults columnSelected;
 		
 		private UIDefaults noneSelected;
-		
-		private Color backgroundColor;
-		
-		private Color alternateRowColor;
 		
 		private UIDefaults getDefaults() {
 			if (rowSelectionAllowed) {
@@ -1229,12 +1255,14 @@ public class BasicTreeTableUI extends TreeTableUI {
 			return noneSelected;
 		}
 		
-		public void prepareForTable() {
-			super.prepareForTable();
-			backgroundColor = createColor(treeTable.getBackground());
+		@Override
+		protected void prepareBackgroundColors() {
+			super.prepareBackgroundColors();
+			backgroundColor = createColor(backgroundColor);
+			alternateRowColor = createColor(alternateRowColor);
 		}
 		
-		
+		@Override
 		public void prepareForTree() {
 			super.prepareForTree();
 			if (System.getSecurityManager() != null)
@@ -1404,7 +1432,19 @@ public class BasicTreeTableUI extends TreeTableUI {
 
 		protected int row;
 		
+		protected Color backgroundColor;
+		
+		protected Color alternateRowColor;
+		
 		public void prepareForTable() {
+			prepareBackgroundColors();
+		}
+		
+		protected void prepareBackgroundColors() {
+			backgroundColor = treeTable.getBackground();
+			alternateRowColor = treeTable.getAlternateRowColor();
+			if (alternateRowColor == null)
+				alternateRowColor = backgroundColor;
 		}
 		
 		public void prepareForTree() {
@@ -1417,6 +1457,8 @@ public class BasicTreeTableUI extends TreeTableUI {
 		public void clearState() {
 			component = null;
 			node = null;
+			backgroundColor = null;
+			alternateRowColor = null;
 			removeAll();
 		}
 		
@@ -1474,15 +1516,25 @@ public class BasicTreeTableUI extends TreeTableUI {
 					sel && treeColumnSelected : treeColumnSelected;
 		}
 		
+		private TableCellRenderer renderer;
+		
+		public void loadRenderer(Class<?> cls) {
+			renderer = table.getDefaultRenderer(cls);
+		}
+		
 		// entry point for default table column renderers
 		@Override
 		public Component getTreeTableCellRendererComponent(TreeTable treeTable,
 				Object val, boolean sel, boolean foc, int row, int col) {
-			int modelColumn = treeTable.convertColumnIndexToModel(col);
-			TableCellRenderer r = table.getDefaultRenderer(
-					treeTable.getTreeColumnModel().getColumnClass(modelColumn));
-			return r.getTableCellRendererComponent(
+			Component c = renderer.getTableCellRendererComponent(
 					table, val, sel, foc, row, col);
+			if (!sel)
+				configureCellRenderer(c, sel, row, col);
+			return c;
+		}
+		
+		protected Color getBackgroundColor() {
+			return treeTable.getBackground();
 		}
 		
 		// entry point for default tree column renderer
@@ -1496,8 +1548,24 @@ public class BasicTreeTableUI extends TreeTableUI {
 
 		@Override
 		public Dimension getPreferredSize() {
+			// for table column or tree column with
+			// fixed row height, return the cell's size
 			if (tableColumn || tree.getRowHeight() > 0)
 				return component.getPreferredSize();
+			
+			// BasicTreeUI requests node dimensions for the root
+			// even if it isn't visible.
+			// Since the values for the root may not be valid for
+			// renderers, when the root isn't visible check for when
+			// the node is the root and return 0x0
+			if (!tree.isRootVisible() && row <= 0
+					&& node == treeTable.getTreeModel().getRoot()) {
+				return new Dimension(0, 0);
+			}
+			
+			// Calculate the size for the tree column.
+			// Includes the preferred height for all columns
+			// in the row.
 			int margin = treeTable.getRowMargin();
 			Dimension size;
 			int tc = treeColumn;
@@ -1612,6 +1680,41 @@ public class BasicTreeTableUI extends TreeTableUI {
 		public void firePropertyChange(String propertyName, boolean oldValue, boolean newValue) {}
 
 		
+		/**
+		 * Sets the components foreground and background based on
+		 * selection/drop cell/alternate row color
+		 */
+		private void configureCellRenderer(Component c, boolean sel, int row, int col) {
+			
+			Color fg = null;
+			Color bg = null;
+
+			DropLocation dropLocation = treeTable.getDropLocation();
+			if (dropLocation != null
+					&& !dropLocation.isInsertRow()
+					&& !dropLocation.isInsertColumn()
+					&& dropLocation.getRow() == row
+					&& dropLocation.getColumn() == col) {
+
+				fg = getDropCellForeground();
+				bg = getDropCellBackground();
+
+				sel = true;
+			}
+
+			if (sel) {
+				c.setForeground(fg != null ? fg :
+						treeTable.getSelectionForeground());
+				c.setBackground(bg != null ? bg :
+						treeTable.getSelectionBackground());
+			} else {
+				c.setForeground(treeTable.getForeground());
+				if (backgroundColor == null)
+					prepareBackgroundColors();
+				c.setBackground(row % 2 == 0 ? backgroundColor : alternateRowColor);
+			}
+		}
+		
 
 		// entry points for Configuration of DefaultTreeTableCellRenderer
 		
@@ -1626,33 +1729,9 @@ public class BasicTreeTableUI extends TreeTableUI {
 			renderer.setIcon(null);
 			renderer.setDisabledIcon(null);
 
-			Color fg = null;
-			Color bg = null;
+			configureCellRenderer(renderer, selected, row, column);
 
-			DropLocation dropLocation = treeTable.getDropLocation();
-			if (dropLocation != null
-					&& !dropLocation.isInsertRow()
-					&& !dropLocation.isInsertColumn()
-					&& dropLocation.getRow() == row
-					&& dropLocation.getColumn() == column) {
-
-				fg = getDropCellForeground();
-				bg = getDropCellBackground();
-
-				selected = true;
-			}
-
-			if (selected) {
-				renderer.setForeground(fg != null ? fg :
-						renderer.getTextSelectionColor());
-				renderer.setBackground(bg != null ? bg :
-						renderer.getBackgroundSelectionColor());
-			} else {
-				renderer.setForeground(renderer.getTextNonSelectionColor());
-				renderer.setBackground(renderer.getBackgroundNonSelectionColor());
-			}
-
-			setFont(table.getFont());
+			renderer.setFont(treeTable.getFont());
 
 			if (hasFocus) {
 				Border border = null;
@@ -1699,16 +1778,13 @@ public class BasicTreeTableUI extends TreeTableUI {
 			
 			renderer.setOpaque(false);
 			
-			Color fg;
-			if (sel) {
-				fg = renderer.getTextSelectionColor();
-			} else {
-				fg = renderer.getTextNonSelectionColor();
-			}
+			Color fg = sel ?
+					treeTable.getSelectionForeground():
+					treeTable.getForeground();
 			renderer.setForeground(fg);
 
 			Icon icon = treeTable.getIconForRow(row, exp, leaf);
-			if (!tree.isEnabled()) {
+			if (!treeTable.isEnabled()) {
 				renderer.setEnabled(false);
 				renderer.setDisabledIcon(icon);
 			}
@@ -1716,7 +1792,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 				renderer.setEnabled(true);
 				renderer.setIcon(icon);
 			}
-			ComponentOrientation o = tree.getComponentOrientation();
+			ComponentOrientation o = treeTable.getComponentOrientation();
 			renderer.setComponentOrientation(o);
 			renderer.setBorder(o.isLeftToRight() ?
 					getLTRBorder() : getRTLBorder());
@@ -1734,163 +1810,6 @@ public class BasicTreeTableUI extends TreeTableUI {
 	}
 	
 	
-	private class TreeEditor implements CellEditor {
-		
-		TreeEditor(TableCellEditor editor) {
-			this.editor = editor;
-			editingContainer = new EditorContainer();
-		}
-		
-		private TableCellEditor editor;
-		
-		private Container editingContainer;
-		
-		private transient TreeTableCellRenderer renderer;
-		
-		private transient Dimension rendererSize;
-		
-		private transient Component editingComponent;
-		
-		private transient Icon editingIcon;
-		
-		private transient int offset;
-		
-		public void clearState() {
-			editingContainer.removeAll();
-			renderer = null;
-			rendererSize = null;
-			editingComponent = null;
-			editingIcon = null;
-		}
-		
-		public Component getEditorComponent(TreeTable treeTable, Object val,
-				boolean sel, int row, int col, boolean exp, boolean leaf) {
-			if (editingComponent != null)
-				editingContainer.remove(editingComponent);
-			
-			renderer = treeTable.getCellRenderer(row, col);
-			editingComponent = editor.getTableCellEditorComponent(
-					table, val, sel, row, col);
-			
-			// determine offset
-			Component rc = renderer.getTreeTableCellRendererComponent(
-					treeTable, val, sel, true, row, col, exp, leaf);
-			rendererSize = rc == null ? null : rc.getPreferredSize();
-			JLabel label = rc instanceof JLabel ? (JLabel)rc : null;
-			editingIcon = label == null ? null : label.getIcon();
-			if (editingIcon != null) {
-				offset = label.getIconTextGap() +
-					editingIcon.getIconWidth();
-			} else {
-				offset = label == null ? 4 : label.getIconTextGap();
-			}
-			offset--;
-			
-			if (editingComponent != null)
-				editingContainer.add(editingComponent);
-			return editingContainer;
-		}
-
-		@Override
-		public Object getCellEditorValue() {
-			return editor.getCellEditorValue();
-		}
-		
-		@Override
-		public void addCellEditorListener(CellEditorListener l) {
-			editor.addCellEditorListener(l);
-		}
-
-		@Override
-		public void cancelCellEditing() {
-			editor.cancelCellEditing();
-		}
-
-		@Override
-		public boolean isCellEditable(EventObject e) {
-			return editor.isCellEditable(e);
-		}
-
-		@Override
-		public void removeCellEditorListener(CellEditorListener l) {
-			editor.removeCellEditorListener(l);
-		}
-
-		@Override
-		public boolean shouldSelectCell(EventObject anEvent) {
-			return editor.shouldSelectCell(anEvent);
-		}
-
-		@Override
-		public boolean stopCellEditing() {
-			return editor.stopCellEditing();
-		}
-
-		// DefaultTreeCellEditor.EditorContainer...
-		private class EditorContainer extends Container {
-			
-			/**
-			 * Overrides <code>Container.paint</code> to paint the node's
-			 * icon and use the selection color for the background.
-			 */
-			public void paint(Graphics g) {
-				if(editingIcon != null) {
-					int yLoc = Math.max(0, (getHeight() -
-							editingIcon.getIconHeight()) / 2);
-
-					editingIcon.paintIcon(this, g, 0, yLoc);
-				}
-				super.paint(g);
-			}
-
-			/**
-			 * Lays out this <code>Container</code>.  If editing,
-			 * the editor will be placed at
-			 * <code>offset</code> in the x direction and 0 for y.
-			 */
-			public void doLayout() {
-				if(editingComponent != null) {
-					Dimension             cSize = getSize();
-
-					editingComponent.getPreferredSize();
-					editingComponent.setLocation(offset, 0);
-					editingComponent.setBounds(offset, 0,
-							cSize.width - offset,
-							cSize.height);
-				}
-			}
-
-			/**
-			 * Returns the preferred size for the <code>Container</code>.
-			 * This will be at least preferred size of the editor plus
-			 * <code>offset</code>.
-			 * @return a <code>Dimension</code> containing the preferred
-			 *   size for the <code>Container</code>; if
-			 *   <code>editingComponent</code> is <code>null</code> the
-			 *   <code>Dimension</code> returned is 0, 0
-			 */
-			public Dimension getPreferredSize() {
-				if(editingComponent != null) {
-					Dimension pSize = editingComponent.getPreferredSize();
-
-					pSize.width += offset + 5;
-
-					if(rendererSize != null)
-						pSize.height = Math.max(pSize.height, rendererSize.height);
-					if(editingIcon != null)
-						pSize.height = Math.max(pSize.height,
-								editingIcon.getIconHeight());
-
-					// Make sure width is at least 100.
-					pSize.width = Math.max(pSize.width, 100);
-					return pSize;
-				}
-				return new Dimension(0, 0);
-			}
-
-		}
-	}
-	
 	private class TreeEditorContainer extends Container {
 		
 		TreeEditorContainer() {
@@ -1906,19 +1825,17 @@ public class BasicTreeTableUI extends TreeTableUI {
 			if (tree.getComponentOrientation().isLeftToRight()) {
 				x = node.x;
 				w -= node.x;
-				component.setBounds(0, 0, w, h);
 			} else {
 				w = node.x + node.width;
-				component.setBounds(0, 0, w, h);
 			}
+			component.setBounds(0, 0, w, h);
 			super.setBounds(x, y, w, h);
 		}
 		
-		void setState(Component c, boolean sel, int row) {
+		void setState(Component c, int row) {
 			add(c);
 			component = c;
 			this.row = row;
-			setBackground(sel ? treeTable.getSelectionBackground() : null);
 		}
 		
 		void clearState() {
@@ -1926,14 +1843,20 @@ public class BasicTreeTableUI extends TreeTableUI {
 			component = null;
 		}
 		
-		public void paint(Graphics g) {
-			if (isBackgroundSet()) {
-				g.setColor(getBackground());
-				g.fillRect(0, 0, getWidth(), getHeight());
-			}
-			super.paint(g);
-		}
+	}
+	
+	private class TreeEditor extends CellEditorContainer<TableCellEditor> {
 
+		TreeEditor(TableCellEditor editor) {
+			super(editor);
+		}
+		
+		public Component getCellEditorComponent(TreeTable treeTable, Object val,
+				boolean sel, int row, int col, boolean exp, boolean leaf) {
+			return editor.getTableCellEditorComponent(
+					table, val, sel, row, col);
+		}
+		
 	}
 	
 	protected class Editor extends AbstractCellEditor implements
@@ -1947,19 +1870,20 @@ public class BasicTreeTableUI extends TreeTableUI {
 		
 		private transient CellEditor defaultEditor;
 		
-		
 		// initial entry point from JTable.getCellEditor(row, col)
 		public void loadEditor(int row, int col) {
 			clearState();
 			treeTableEditor = treeTable.getCellEditor(row, col);
-			if (treeTableEditor == this) {
-				if (col == treeTable.getHierarchialColumn()) {
-					if (defaultTreeEditor == null)
-						defaultTreeEditor = new TreeEditor(table.getDefaultEditor(Object.class));
-					defaultEditor = defaultTreeEditor;
-				} else {
-					defaultEditor = table.getDefaultEditor(table.getColumnClass(col));
-				}
+		}
+		
+		public void loadEditor(Class<?> cls, int col) {
+			treeTableEditor = this;
+			if (col == treeTable.getHierarchialColumn()) {
+				if (defaultTreeEditor == null)
+					defaultTreeEditor = new TreeEditor(table.getDefaultEditor(Object.class));
+				defaultEditor = defaultTreeEditor;
+			} else {
+				defaultEditor = table.getDefaultEditor(table.getColumnClass(col));
 			}
 		}
 
@@ -1982,7 +1906,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 			if (treeColumn) {
 				if (treeEditorContainer == null)
 					treeEditorContainer = new TreeEditorContainer();
-				treeEditorContainer.setState(c, selected, row);
+				treeEditorContainer.setState(c, row);
 				c = treeEditorContainer;
 			}
 			getEditor().addCellEditorListener(this);
@@ -2002,7 +1926,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 		@Override
 		public Component getTreeTableCellEditorComponent(TreeTable treeTable,
 				Object val, boolean sel, int row, int col, boolean exp, boolean leaf) {
-			return defaultTreeEditor.getEditorComponent(
+			return defaultTreeEditor.getTreeTableCellEditorComponent(
 					treeTable, val, sel, row, col, exp, leaf);
 		}
 
@@ -2098,6 +2022,11 @@ public class BasicTreeTableUI extends TreeTableUI {
 	 */
 	protected int getTreeHandleWidth() {
 		return treeHandleWidth;
+	}
+	
+	@Override
+	public int getTreeHandleWidth(TreeTable treeTable) {
+		return getTreeHandleWidth();
 	}
 	
 	protected void processKeyBinding(JComponent c, KeyStroke ks,

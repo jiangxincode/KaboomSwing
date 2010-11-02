@@ -49,11 +49,9 @@ public class DefaultTreeColumnModel extends AbstractTreeColumnModel {
 		if (root == null)
 			return Object.class;
 		Object value = root.getValueAt(column);
-		if (value == null)
-			return Object.class;
 		if (value instanceof Class<?>)
 			return (Class<?>)value;
-		return value.getClass();
+		return value == null ? Object.class : value.getClass();
 	}
 	
 	@Override
@@ -83,7 +81,7 @@ public class DefaultTreeColumnModel extends AbstractTreeColumnModel {
 	}
 	
 	public void setColumnEditable(int column, boolean editable) {
-		if (column > 32)
+		if (column > 31)
 			throw new IllegalArgumentException();
 		if (editable) {
 			editableColumns |= 1 << column;

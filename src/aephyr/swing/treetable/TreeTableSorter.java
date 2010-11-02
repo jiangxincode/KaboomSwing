@@ -51,7 +51,7 @@ public interface TreeTableSorter<T extends TreeModel, C extends TreeColumnModel>
 
 	public void setVisible(TreePath path, List<TreePath> subPaths, boolean visible);
 	
-	public void structureChanged(TreePath path);
+	public void structureChanged(TreePath path, boolean newRoot);
 	
 	public void nodesRemoved(TreePath path, Object[] childNodes);
 	

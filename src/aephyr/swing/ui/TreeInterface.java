@@ -56,7 +56,9 @@ public interface TreeInterface extends Scrollable {
 	public boolean isExpanded(int row);
 
 	public boolean isExpanded(TreePath path);
-
+	
+	public boolean hasBeenExpanded(TreePath path);
+	
 	public boolean isFixedRowHeight();
 	
 	public boolean isLargeModel();

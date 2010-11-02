@@ -2,10 +2,14 @@ package aephyr.swing.mnemonic;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.awt.event.ContainerEvent;
 import java.awt.event.ContainerListener;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.HierarchyListener;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.Iterator;
@@ -18,12 +22,16 @@ import java.util.WeakHashMap;
 import java.util.Map.Entry;
 
 import javax.swing.AbstractButton;
+import javax.swing.Action;
+import javax.swing.ActionMap;
+import javax.swing.InputMap;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JTabbedPane;
+import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 
 public class MnemonicManager implements MnemonicFactory {
@@ -35,6 +43,62 @@ public class MnemonicManager implements MnemonicFactory {
 	private Handler handler = new Handler();
 	
 	private boolean valid = true;
+	
+	
+	// Support for showing mnemonics only when ALT is pressed.
+	// Problematic in that it doesn't hide the mnemonics if a 
+	// combination such as ALT press, CTRL press, ALT release occurs
+	
+	private JComponent altComponent;
+	
+	private Object altPressKey;
+	
+	private Object altReleaseKey;
+	
+	public void setAltComponent(JComponent c) {
+		if (altComponent != c) {
+			if (altComponent != null) {
+				InputMap inputs = altComponent.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
+				inputs.remove(KeyStroke.getKeyStroke(KeyEvent.VK_ALT, InputEvent.ALT_DOWN_MASK, false));
+				inputs.remove(KeyStroke.getKeyStroke(KeyEvent.VK_ALT, 0, true));
+				ActionMap actions = altComponent.getActionMap();
+				actions.remove(altPressKey);
+				actions.remove(altReleaseKey);
+			}
+			altComponent = c;
+			if (c != null) {
+				if (altPressKey == null) {
+					altPressKey = new Object();
+					altReleaseKey = new Object();
+				}
+				InputMap inputs = c.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
+				inputs.put(KeyStroke.getKeyStroke(KeyEvent.VK_ALT, InputEvent.ALT_DOWN_MASK, false), altPressKey);
+				inputs.put(KeyStroke.getKeyStroke(KeyEvent.VK_ALT, 0, true), altReleaseKey);
+			} else {
+				altPressKey = null;
+				altReleaseKey = null;
+			}
+			revalidate();
+		}
+	}
+	
+	public JComponent getAltComponent() {
+		return altComponent;
+	}
+	
+	
+//	private boolean showMnemonicsOnAltPress = false;
+//	
+//	public void setShowMnemonicsOnAltPress(boolean b) {
+//		if (b != showMnemonicsOnAltPress) {
+//			showMnemonicsOnAltPress = b;
+//			revalidate();
+//		}
+//	}
+//	
+//	public boolean getShowMnemonicsOnAltPress() {
+//		return showMnemonicsOnAltPress;
+//	}
 	
 	@Override
 	public Mnemonic createMnemonic(JComponent c) {
@@ -337,7 +401,6 @@ public class MnemonicManager implements MnemonicFactory {
 		}
 	}
 
-	
 	@SuppressWarnings("unchecked")
 	private void validate() {
 		if (!valid) {
@@ -362,11 +425,82 @@ public class MnemonicManager implements MnemonicFactory {
 			}
 			if (unset_entries != null)
 				bump(unset_entries, mnemonic_to_entry, false);
-			for (Entry<Integer,MnemonicEntry> entry : mnemonic_to_entry.entrySet()) {
-				entry.getValue().setMnemonicKey(entry.getKey());
+			if (altComponent != null) {
+				mnemonicsSet = false;
+				ActionMap actions = altComponent.getActionMap();
+				actions.put(altPressKey, new AltAction(true, mnemonic_to_entry));
+				actions.put(altReleaseKey, new AltAction(false, mnemonic_to_entry));
+			} else {
+				for (Entry<Integer,MnemonicEntry> entry : mnemonic_to_entry.entrySet()) {
+					entry.getValue().setMnemonicKey(entry.getKey());
+				}
 			}
 		}
 	}
+	
+	private boolean mnemonicsSet = false;
+	
+	private class AltAction implements Action {
+		
+		AltAction(boolean pr, HashMap<Integer,MnemonicEntry> mp) {
+			press = pr;
+			map = mp;
+		}
+		
+		private boolean press;
+		
+		private HashMap<Integer,MnemonicEntry> map;
+		
+		public void actionPerformed(ActionEvent e) {
+			if (press) {
+				if (!mnemonicsSet) {
+					mnemonicsSet = true;
+					setMnemonics();
+				}
+			} else {
+				mnemonicsSet = false;
+				clearMnemonics();
+			}
+		}
+		
+		private void setMnemonics() {
+			for (Entry<Integer,MnemonicEntry> entry : map.entrySet()) {
+				entry.getValue().setMnemonicKey(entry.getKey());
+			}
+		}
+		
+		private void clearMnemonics() {
+			for (Entry<Integer,MnemonicEntry> entry : map.entrySet()) {
+				entry.getValue().setMnemonicKey(0);
+			}
+		}
+
+		@Override
+		public void addPropertyChangeListener(PropertyChangeListener listener) {}
+
+		@Override
+		public Object getValue(String key) {
+			return null;
+		}
+
+		@Override
+		public boolean isEnabled() {
+			return true;
+		}
+
+		@Override
+		public void putValue(String key, Object value) {
+		}
+
+		@Override
+		public void removePropertyChangeListener(PropertyChangeListener listener) {
+		}
+
+		@Override
+		public void setEnabled(boolean b) {
+		}
+	}
+	
 	
 	private void bump(ArrayList<MnemonicEntry> unset_entries,
 			HashMap<Integer,MnemonicEntry> mnemonic_to_entry, boolean canDuplicate) {
@@ -462,7 +596,11 @@ public class MnemonicManager implements MnemonicFactory {
 		return null;
 	}
 	
-	private class Handler implements Runnable, Comparator<MnemonicEntry>,
+	private static final String ALT_PRESS = "Alt Press";
+	
+	private static final String ALT_RELEASE = "Alt Release";
+	
+	private class Handler implements Runnable, ActionListener, Comparator<MnemonicEntry>,
 			ContainerListener, HierarchyListener, PropertyChangeListener {
 
 		public int compare(MnemonicEntry a, MnemonicEntry b) {
@@ -561,6 +699,16 @@ public class MnemonicManager implements MnemonicFactory {
 			}
 		}
 
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			String cmd = e.getActionCommand();
+			if (cmd == ALT_PRESS) {
+				
+			} else if (cmd == ALT_RELEASE) {
+				
+			}
+		}
+
 	}
 	
 	private static int getParentCount(Container c) {
@@ -571,5 +719,8 @@ public class MnemonicManager implements MnemonicFactory {
 		}
 		return i;
 	}
+	
+	
+	
 
 }

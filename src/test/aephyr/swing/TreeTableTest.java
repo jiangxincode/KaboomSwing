@@ -41,7 +41,7 @@ public class TreeTableTest implements Runnable, ItemListener {
 	private static final String RENDERER_VARIABLE_HEIGHT = "C: Variable Row Height Renderer";
 
 	public static void main(String[] args) throws Exception {
-		Utilities.setNimbusLookAndFeel();
+//		Utilities.setNimbusLookAndFeel();
 //		UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
 		SwingUtilities.invokeLater(new TreeTableTest());
 	}
@@ -97,9 +97,7 @@ public class TreeTableTest implements Runnable, ItemListener {
 		frame.setLocationRelativeTo(null);
 		new MnemonicGenerator().addMnemonics(frame.getRootPane());
 		frame.setVisible(true);
-		
-//		System.out.println("TreeTable dropTarget" + treeTable.getDropTarget());
-//		System.out.println("Table dropTarget" + table.getDropTarget());
+
 	}
 	
 	private JFrame frame;
@@ -112,11 +110,14 @@ public class TreeTableTest implements Runnable, ItemListener {
 	
 	private TreeTable createTreeTable() {
 		
-//		TreeTableNode root = createNode(4, 4);
-//		TreeTable treeTable = new TreeTable(new DefaultTreeModel(root),
-//				new DefaultRowModel(root), new DefaultTableColumnModel());
-
-		TreeTable treeTable = new TreeTable(createNode(4, COLUMN_COUNT));
+		DefaultTreeTableNode root = createNode(4, COLUMN_COUNT);
+		
+		TreeTable treeTable = new TreeTable(root);
+		treeTable.setRootVisible(false);
+		// column 0 can't be a String because sometimes the value is wrapped
+		// into a Header object so the Renderer knows to make it bold
+		root.setValueAt(Object.class, 0);
+		
 		treeTable.setAutoCreateRowSorter(true);
 		((DefaultTreeTableSorter)treeTable.getRowSorter()).setSortsOnUpdates(true);
 		
@@ -124,7 +125,8 @@ public class TreeTableTest implements Runnable, ItemListener {
 		treeTable.setDropMode(DropMode.INSERT_ROWS);
 		treeTable.setTransferHandler(new DummyTransferHandler());
 		
-//		treeTable.getColumnModel().getColumn(0).setCellEditor(new TreeEditor());
+		treeTable.setBackground(new Color(220, 245, 230));
+		treeTable.setAlternateRowColor(new Color(240, 255, 240));
 
 		return treeTable;
 	}

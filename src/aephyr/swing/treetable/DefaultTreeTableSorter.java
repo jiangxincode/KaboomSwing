@@ -275,10 +275,14 @@ public class DefaultTreeTableSorter<T extends TreeModel, C extends TreeColumnMod
 	}
 	
 	@Override
-	public void structureChanged(TreePath path) {
-		NodeSorter s = getRowSorter(path);
-		s.removeAllChildren(sorters);
-		s.setVisible(false);
+	public void structureChanged(TreePath path, boolean newRoot) {
+		if (newRoot) {
+			sorters.clear();
+		} else {
+			NodeSorter s = getRowSorter(path.getLastPathComponent());
+			s.removeAllChildren(sorters);
+			// TODO: rebuild here?
+		}
 	}
 	
 	@Override
@@ -339,14 +343,6 @@ public class DefaultTreeTableSorter<T extends TreeModel, C extends TreeColumnMod
 		DefaultTreeTableSorter<T,C,I> getMaster() {
 			return DefaultTreeTableSorter.this;
 		}
-
-//		public RowSorter<T> getRowSorter(Object node) {
-//			return getChildSorter(node, null);
-//		}
-//
-//		public RowSorter<T> getRowSorter(TreePath path) {
-//			return null;
-//		}
 
 		NodeSorter getChildSorter(Object node, Map<Object,NodeSorter> map) {
 			NodeSorter s = children.get(node);
@@ -502,7 +498,7 @@ public class DefaultTreeTableSorter<T extends TreeModel, C extends TreeColumnMod
 			if (visible != vis) {
 				visible = vis;
 				if (vis)
-					sort();
+					sort(true);
 			}
 		}
 
@@ -528,44 +524,6 @@ public class DefaultTreeTableSorter<T extends TreeModel, C extends TreeColumnMod
 		}
 		
 		
-//		/**
-//		 * Notifies the NodeSorter that it should discard the specified children.
-//		 * 
-//		 * @param childNodes the nodes to remove
-//		 * @return a list of all [great...] grand children
-//		 */
-//		public List<Object> nodesRemoved(Object[] childNodes) {
-//			if (children != null) {
-//				ArrayList<Object> list = new ArrayList<Object>();
-//				for (Object node : childNodes) {
-//					NodeSorter sorter = children.remove(node);
-//					if (sorter != null)
-//						list.addAll(sorter.removeAllChildren());
-//				}
-//				return list;
-//			}
-//			return Collections.emptyList();
-//		}
-//
-//		/**
-//		 * Notifies the NodeSorter that it should discard all nested children.
-//		 * 
-//		 * @return list of all nested children
-//		 */
-//		public List<Object> removeAllChildren() {
-//			if (children != null) {
-//				ArrayList<Object> list = new ArrayList<Object>(children.size());
-//				for (Map.Entry<Object,NodeSorter> entry : children.entrySet()) {
-//					list.add(entry.getKey());
-//					list.addAll(entry.getValue().removeAllChildren());
-//				}
-//				children = null;
-//				return list;
-//			}
-//			return Collections.emptyList();
-//		}
-
-
 
 		protected class TreeTableWrapper extends ModelWrapper<T,I> {
 

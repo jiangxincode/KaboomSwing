@@ -129,7 +129,7 @@ public class DefaultMnemonic implements IndexedMnemonic, Action {
 	}
 	
 	public void setDisplayedMnemonicIndex(JComponent c, int index) {
-		if (index < 0) {
+		if (getIndex() < 0) {
 			if (c instanceof AbstractButton) {
 				((AbstractButton)c).setDisplayedMnemonicIndex(index);
 			} else if (c instanceof JLabel) {

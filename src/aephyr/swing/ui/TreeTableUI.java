@@ -35,14 +35,16 @@ public abstract class TreeTableUI extends ComponentUI {
 			TreeTable treeTable, Object value, boolean selected,
 			int row, int column, boolean expanded, boolean leaf);
 	
-	public abstract TreeTableCellRenderer getDefaultRenderer(Class<?> columnClass);
+	public abstract TreeTableCellRenderer getDefaultRenderer(TreeTable treeTable, Class<?> columnClass);
 
-	public abstract TreeTableCellEditor getDefaultEditor(Class<?> columnClass);
+	public abstract TreeTableCellEditor getDefaultEditor(TreeTable treeTable, Class<?> columnClass, int column);
 	
 	public abstract Rectangle getPathBounds(TreeTable treeTable, TreePath path);
 	
 	public abstract TreePath getPathForLocation(TreeTable treeTable, int x, int y);
 	
 	public abstract TreePath getClosestPathForLocation(TreeTable treeTable, int x, int y);
+	
+	public abstract int getTreeHandleWidth(TreeTable treeTable);
 	
 }

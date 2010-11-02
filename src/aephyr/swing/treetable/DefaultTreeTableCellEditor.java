@@ -11,6 +11,7 @@ import javax.swing.JTree;
 
 import aephyr.swing.TreeTable;
 
+
 public class DefaultTreeTableCellEditor extends DefaultCellEditor
 		implements TreeTableCellEditor {
 	
