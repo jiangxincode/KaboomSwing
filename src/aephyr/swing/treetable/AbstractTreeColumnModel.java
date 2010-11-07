@@ -52,7 +52,7 @@ public abstract class AbstractTreeColumnModel implements TreeColumnModel {
 	}
 	
 	@Override
-	public int getHierarchialColumn() {
+	public int getHierarchicalColumn() {
 		return 0;
 	}
 	

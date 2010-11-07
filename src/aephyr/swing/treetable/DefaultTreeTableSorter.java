@@ -150,6 +150,8 @@ public class DefaultTreeTableSorter<T extends TreeModel, C extends TreeColumnMod
     }
 
     public void setRowFilter(RowFilter<? super T, ? super I> filter) {
+    	if (filter == null && rowFilter == null)
+    		return;
     	rowFilter = filter;
     	sort();
     }
@@ -278,6 +280,7 @@ public class DefaultTreeTableSorter<T extends TreeModel, C extends TreeColumnMod
 	public void structureChanged(TreePath path, boolean newRoot) {
 		if (newRoot) {
 			sorters.clear();
+			sorters.put(treeModel.getRoot(), new NodeSorter(treeModel.getRoot()));
 		} else {
 			NodeSorter s = getRowSorter(path.getLastPathComponent());
 			s.removeAllChildren(sorters);
@@ -287,7 +290,9 @@ public class DefaultTreeTableSorter<T extends TreeModel, C extends TreeColumnMod
 	
 	@Override
 	public void nodesRemoved(TreePath path, Object[] childNodes) {
-		getRowSorter(path).remove(childNodes, sorters);
+		NodeSorter sorter = getRowSorter(path.getLastPathComponent());
+		if (sorter != null)
+			sorter.remove(childNodes, sorters);
 	}
 	
 	@Override
@@ -374,9 +379,9 @@ public class DefaultTreeTableSorter<T extends TreeModel, C extends TreeColumnMod
 		
 		@Override
 		protected boolean useToString(int column) {
-	        Comparator<?> comparator = super.getComparator(column);
-	        if (comparator != null)
-	            return false;
+			if (super.getComparator(column) != null
+					|| getMaster().getComparator(column) != null)
+				return false;
 	        Class<?> columnClass = getColumnModel().getColumnClass(column);
 	        if (columnClass == String.class)
 	            return false;

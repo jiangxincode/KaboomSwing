@@ -91,7 +91,7 @@ public class DefaultTreeColumnModel extends AbstractTreeColumnModel {
 	}
 	
 	@Override
-	public int getHierarchialColumn() {
+	public int getHierarchicalColumn() {
 		return hierarchialColumn;
 	}
 	

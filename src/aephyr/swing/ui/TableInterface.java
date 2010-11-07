@@ -1,6 +1,7 @@
 package aephyr.swing.ui;
 
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Point;
 import java.awt.Rectangle;
@@ -9,7 +10,10 @@ import java.beans.PropertyChangeListener;
 import javax.swing.DropMode;
 import javax.swing.Scrollable;
 import javax.swing.table.JTableHeader;
+import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableColumnModel;
+
+import aephyr.swing.treetable.TreeTableCellEditor;
 
 public interface TableInterface extends Scrollable {
 	
@@ -108,5 +112,20 @@ public interface TableInterface extends Scrollable {
 	public void setRowHeight(int row, int height);
 	
 	public void doLayout();
+	
+	
+	public boolean editCellAt(int row, int column);
+
+	public TableCellEditor getCellEditor();
+	
+	public boolean isEditing();
+
+	public Component getEditorComponent();
+
+	public int getEditingColumn();
+	
+	public int getEditingRow();
+
+
 	
 }

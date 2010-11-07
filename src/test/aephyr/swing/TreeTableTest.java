@@ -9,13 +9,16 @@ import java.beans.PropertyChangeListener;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.event.*;
 import javax.swing.table.*;
 import javax.swing.tree.*;
@@ -41,9 +44,53 @@ public class TreeTableTest implements Runnable, ItemListener {
 	private static final String RENDERER_VARIABLE_HEIGHT = "C: Variable Row Height Renderer";
 
 	public static void main(String[] args) throws Exception {
-//		Utilities.setNimbusLookAndFeel();
+		if (printMethods(false))
+			return;
+		Utilities.setNimbusLookAndFeel();
 //		UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
 		SwingUtilities.invokeLater(new TreeTableTest());
+	}
+	
+	private static boolean printMethods(boolean b) {
+		if (b) {
+			Set<String> treeTableSet = createSet(TreeTable.class);
+			Set<String> tableSet = createSet(JTable.class);
+			Set<String> treeSet = createSet(JTree.class);
+			tableSet.removeAll(treeTableSet);
+			treeSet.removeAll(treeTableSet);
+			print("JTable:", tableSet);
+			print("JTree:", treeSet);
+		}
+		return b;
+	}
+	
+	private static void print(String title, Set<String> set) {
+		System.out.println(title);
+		for (String str : set) {
+			System.out.print("\t");
+			System.out.println(str);
+		}
+	}
+	
+	private static Set<String> createSet(Class<?> cls) {
+		Method[] methods = cls.getDeclaredMethods();
+		Set<String> set = new HashSet<String>(methods.length);
+		StringBuilder s = new StringBuilder(200);
+		for (Method m : methods) {
+			if ((m.getModifiers() & java.lang.reflect.Modifier.PUBLIC) == 0)
+				continue;
+			s.append(m.getName()).append('(');
+			Class<?>[] p = m.getParameterTypes();
+			if (p.length > 0) {
+				for (Class<?> c : p)
+					s.append(c.getName()).append(',');
+				s.deleteCharAt(s.length()-1);
+			}
+			s.append(')');
+			set.add(s.toString());
+			s.delete(0, s.length());
+		}
+		return set;
 	}
 	
 	private static Random random = new Random();
@@ -68,8 +115,6 @@ public class TreeTableTest implements Runnable, ItemListener {
 			}
 		});
 		scroller.setCorner(JScrollPane.UPPER_TRAILING_CORNER, corner);
-		if (!PROPERTY_TABLE)
-			scroller.setRowHeaderView(new RowHeader(treeTable.getTableModel()));
 		Actions act = new Actions(Actions.PRINT_LINE);
 		treeTable.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_F1, 0), act);
 		treeTable.getActionMap().put(act, act);
@@ -114,6 +159,7 @@ public class TreeTableTest implements Runnable, ItemListener {
 		
 		TreeTable treeTable = new TreeTable(root);
 		treeTable.setRootVisible(false);
+		treeTable.setShowsRootHandles(true);
 		// column 0 can't be a String because sometimes the value is wrapped
 		// into a Header object so the Renderer knows to make it bold
 		root.setValueAt(Object.class, 0);
@@ -125,8 +171,10 @@ public class TreeTableTest implements Runnable, ItemListener {
 		treeTable.setDropMode(DropMode.INSERT_ROWS);
 		treeTable.setTransferHandler(new DummyTransferHandler());
 		
-		treeTable.setBackground(new Color(220, 245, 230));
-		treeTable.setAlternateRowColor(new Color(240, 255, 240));
+		treeTable.setAutoCreateRowHeader(true);
+		
+//		treeTable.setBackground(new Color(220, 245, 230));
+//		treeTable.setAlternateRowColor(new Color(240, 255, 240));
 
 		return treeTable;
 	}
@@ -152,131 +200,128 @@ public class TreeTableTest implements Runnable, ItemListener {
     	}
 	}
 	
-	// TODO: Header row heights aren't always in sync
-	// with the table row heights when sorting.
-	private class RowHeader extends JTable {
-		
-		RowHeader(TableModel tm) {
-			super(new RowModel(tm));
-			setAutoCreateColumnsFromModel(false);
-			setRowMargin(0);
-			getColumnModel().setColumnMargin(0);
-			setFocusable(false);
-			updateRowHeight();
-			Handler h = new Handler();
-			if (treeTable.getRowSorter() != null)
-				treeTable.getRowSorter().addTreeTableSorterListener(h);
-			treeTable.addPropertyChangeListener("rowHeight", h);
-			treeTable.addPropertyChangeListener("rowSorter", h);
-		}
-		
-		private boolean variableRowHeights;
-		
-		public void updateUI() {
-			super.updateUI();
-			TableCellRenderer r = getTableHeader().getDefaultRenderer();
-			if (r instanceof JLabel) {
-				JLabel l = (JLabel)r;
-				l.setHorizontalAlignment(JLabel.CENTER);
-			}
-			getColumnModel().getColumn(0).setCellRenderer(r);
-			Dimension size = r.getTableCellRendererComponent(
-					RowHeader.this, "9999", false, false, -1, -1).getPreferredSize();
-			setPreferredScrollableViewportSize(size);
-			repaint();
-		}
-
-		
-		private void updateRowHeight() {
-			int rh = treeTable.getRowHeight();
-			variableRowHeights = rh <= 0;
-			if (variableRowHeights) {
-				updateRowHeights(0, getRowCount()-1);
-			} else {
-				setRowHeight(rh);
-			}
-		}
-		
-		public void tableChanged(TableModelEvent e) {
-			super.tableChanged(e);
-			if (e.getType() != TableModelEvent.DELETE) {
-				updateRowHeights(e.getFirstRow(), e.getLastRow());
-			}
-		}
-		
-		private void updateRowHeights(final int firstRow, final int lastRow) {
-			if (!variableRowHeights || firstRow < 0)
-				return;
-			SwingUtilities.invokeLater(new Runnable() {
-				public void run() {
-					// safety precaution
-					int last = Math.min(lastRow, getRowCount()-1);
-					for (int row=firstRow; row<=last; row++) {
-						setRowHeight(row, treeTable.getRowHeight(row));
-					}
-				}
-			});
-		}
-		
-		class Handler implements PropertyChangeListener, TreeTableSorterListener {
-			
-			@Override
-			public void propertyChange(PropertyChangeEvent evt) {
-				String name = evt.getPropertyName();
-				if (name == "rowHeight") {
-					updateRowHeight();
-				} else if (name == "rowSorter") {
-					TreeTableSorter<?,?> sorter = (TreeTableSorter<?,?>)evt.getOldValue();
-					if (sorter != null)
-						sorter.removeTreeTableSorterListener(this);
-					sorter = (TreeTableSorter<?,?>)evt.getNewValue();
-					if (sorter != null)
-						sorter.addTreeTableSorterListener(this);
-				}
-			}
-			
-			@Override
-			public void sorterChanged(TreeTableSorterEvent e) {
-				if (e.getType() == TreeTableSorterEvent.Type.SORT_ORDER_CHANGED) {
-					updateRowHeights(0, getRowCount()-1);
-				}
-			}
-		}
-		
-	}
-	
-	private static class RowModel extends AbstractTableModel implements TableModelListener {
-		
-		RowModel(TableModel tm) {
-			model = tm;
-			tm.addTableModelListener(this);
-		}
-		
-		private TableModel model;
-
-		@Override
-		public int getColumnCount() {
-			return 1;
-		}
-
-		@Override
-		public int getRowCount() {
-			return model.getRowCount();
-		}
-
-		@Override
-		public Object getValueAt(int rowIndex, int columnIndex) {
-			return rowIndex;
-		}
-
-		@Override
-		public void tableChanged(TableModelEvent e) {
-			if (e.getType() != TableModelEvent.UPDATE)
-				fireTableChanged(new TableModelEvent(this,
-						e.getFirstRow(), e.getLastRow(), 0, e.getType()));
-		}
-		
-	}
+//	private class RowHeader extends JTable {
+//		
+//		RowHeader(TableModel tm) {
+//			super(new RowModel(tm));
+//			setAutoCreateColumnsFromModel(false);
+//			setRowMargin(0);
+//			getColumnModel().setColumnMargin(0);
+//			setFocusable(false);
+//			updateRowHeight();
+//			Handler h = new Handler();
+//			if (treeTable.getRowSorter() != null)
+//				treeTable.getRowSorter().addTreeTableSorterListener(h);
+//			treeTable.addPropertyChangeListener("rowHeight", h);
+//			treeTable.addPropertyChangeListener("rowSorter", h);
+//		}
+//		
+//		private boolean variableRowHeights;
+//		
+//		public void updateUI() {
+//			super.updateUI();
+//			TableCellRenderer r = getTableHeader().getDefaultRenderer();
+//			if (r instanceof JLabel) {
+//				JLabel l = (JLabel)r;
+//				l.setHorizontalAlignment(JLabel.CENTER);
+//			}
+//			getColumnModel().getColumn(0).setCellRenderer(r);
+//			Dimension size = r.getTableCellRendererComponent(
+//					RowHeader.this, "9999", false, false, -1, -1).getPreferredSize();
+//			setPreferredScrollableViewportSize(size);
+//			repaint();
+//		}
+//
+//		
+//		private void updateRowHeight() {
+//			int rh = treeTable.getRowHeight();
+//			variableRowHeights = rh <= 0;
+//			if (variableRowHeights) {
+//				updateRowHeights(0, getRowCount()-1);
+//			} else {
+//				setRowHeight(rh);
+//			}
+//		}
+//		
+//		public void tableChanged(TableModelEvent e) {
+//			super.tableChanged(e);
+//			if (e.getType() != TableModelEvent.DELETE) {
+//				updateRowHeights(e.getFirstRow(), e.getLastRow());
+//			}
+//		}
+//		
+//		private void updateRowHeights(final int firstRow, final int lastRow) {
+//			if (!variableRowHeights || firstRow < 0)
+//				return;
+//			SwingUtilities.invokeLater(new Runnable() {
+//				public void run() {
+//					// safety precaution
+//					int last = Math.min(lastRow, getRowCount()-1);
+//					for (int row=firstRow; row<=last; row++) {
+//						setRowHeight(row, treeTable.getRowHeight(row));
+//					}
+//				}
+//			});
+//		}
+//		
+//		class Handler implements PropertyChangeListener, TreeTableSorterListener {
+//			
+//			@Override
+//			public void propertyChange(PropertyChangeEvent evt) {
+//				String name = evt.getPropertyName();
+//				if (name == "rowHeight") {
+//					updateRowHeight();
+//				} else if (name == "rowSorter") {
+//					TreeTableSorter<?,?> sorter = (TreeTableSorter<?,?>)evt.getOldValue();
+//					if (sorter != null)
+//						sorter.removeTreeTableSorterListener(this);
+//					sorter = (TreeTableSorter<?,?>)evt.getNewValue();
+//					if (sorter != null)
+//						sorter.addTreeTableSorterListener(this);
+//				}
+//			}
+//			
+//			@Override
+//			public void sorterChanged(TreeTableSorterEvent e) {
+//				if (e.getType() == TreeTableSorterEvent.Type.SORT_ORDER_CHANGED) {
+//					updateRowHeights(0, getRowCount()-1);
+//				}
+//			}
+//		}
+//		
+//	}
+//	
+//	private static class RowModel extends AbstractTableModel implements TableModelListener {
+//		
+//		RowModel(TableModel tm) {
+//			model = tm;
+//			tm.addTableModelListener(this);
+//		}
+//		
+//		private TableModel model;
+//
+//		@Override
+//		public int getColumnCount() {
+//			return 1;
+//		}
+//
+//		@Override
+//		public int getRowCount() {
+//			return model.getRowCount();
+//		}
+//
+//		@Override
+//		public Object getValueAt(int rowIndex, int columnIndex) {
+//			return rowIndex;
+//		}
+//
+//		@Override
+//		public void tableChanged(TableModelEvent e) {
+//			fireTableChanged(new TableModelEvent(this,
+//					e.getFirstRow(), e.getLastRow(), 0, e.getType()));
+//		}
+//		
+//	}
 	
 	
 	

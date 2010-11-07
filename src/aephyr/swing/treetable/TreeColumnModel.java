@@ -16,7 +16,7 @@ public interface TreeColumnModel {
 	
 	boolean isCellEditable(Object node, int column);
 	
-	int getHierarchialColumn();
+	int getHierarchicalColumn();
 	
 	void addTreeColumnModelListener(TreeColumnModelListener l);
 	
