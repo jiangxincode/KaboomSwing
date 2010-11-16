@@ -12,12 +12,14 @@
  *    You should have received a copy of the GNU Lesser General Public License
  *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package aephyr.swing.mnemonic;
+package aephyr.swing.treetable;
 
-public interface IndexedMnemonic extends Mnemonic {
-	
-	int getIndex();
-	
-	void setIndex(int index);
+import javax.swing.Icon;
+
+import aephyr.swing.TreeTable;
+
+public interface IconMap {
+
+	Icon getIcon(TreeTable treeTable, Object node, boolean expanded, boolean leaf);
 	
 }

@@ -1,3 +1,17 @@
+/*
+ *    This program is free software: you can redistribute it and/or modify
+ *    it under the terms of the GNU Lesser General Public License as published
+ *    by the Free Software Foundation, either version 3 of the License, or
+ *    (at your option) any later version.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU Lesser General Public License for more details.
+ *
+ *    You should have received a copy of the GNU Lesser General Public License
+ *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 package aephyr.swing.ui;
 
 import java.awt.Color;
@@ -17,12 +31,6 @@ import aephyr.swing.treetable.TreeTableCellEditor;
 
 public interface TableInterface extends Scrollable {
 	
-	public TableColumnModel getColumnModel();
-	
-	public void setColumnModel(TableColumnModel columnModel);
-
-	
-
 	public int convertColumnIndexToView(int modelColumnIndex);
 	
 	public int convertColumnIndexToModel(int viewColumnIndex);
@@ -60,10 +68,6 @@ public interface TableInterface extends Scrollable {
 	public Dimension getIntercellSpacing();
 
 	public void setIntercellSpacing(Dimension intercellSpacing);
-
-	public int getRowMargin();
-	
-	public void setRowMargin(int rowMargin);
 
 	public boolean getRowSelectionAllowed();
 
@@ -103,7 +107,7 @@ public interface TableInterface extends Scrollable {
 	
 	public int rowAtPoint(Point pt);
 	
-	public Rectangle getCellRect(int row, int col, boolean includeSpacing);
+	public Rectangle getCellBounds(int row, int col, boolean includeSpacing);
 	
 	public void setRowHeight(int height);
 	

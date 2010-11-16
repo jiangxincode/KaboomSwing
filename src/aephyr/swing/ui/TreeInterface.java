@@ -1,3 +1,17 @@
+/*
+ *    This program is free software: you can redistribute it and/or modify
+ *    it under the terms of the GNU Lesser General Public License as published
+ *    by the Free Software Foundation, either version 3 of the License, or
+ *    (at your option) any later version.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU Lesser General Public License for more details.
+ *
+ *    You should have received a copy of the GNU Lesser General Public License
+ *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 package aephyr.swing.ui;
 
 import java.awt.Rectangle;
@@ -22,13 +36,11 @@ public interface TreeInterface extends Scrollable {
 	
 	public void collapsePath(TreePath path);
 	
-	public void collapseRow(int row);
-	
 	public void expandPath(TreePath path);
 	
-	public void expandRow(int row);
-	
 	public void makeVisible(TreePath path);
+	
+	public void scrollPathToVisible(TreePath path);
 	
 	
 
@@ -40,8 +52,6 @@ public interface TreeInterface extends Scrollable {
 
 	public TreePath getPathForRow(int row);
 
-	public Rectangle getRowBounds(int row);
-
 	public int getRowCount();
 
 	public int getClosestRowForLocation(int x, int y);
@@ -50,11 +60,7 @@ public interface TreeInterface extends Scrollable {
 
 	public int getRowForPath(TreePath path);
 	
-	public boolean isCollapsed(int row);
-
 	public boolean isCollapsed(TreePath path);
-
-	public boolean isExpanded(int row);
 
 	public boolean isExpanded(TreePath path);
 	
@@ -71,6 +77,8 @@ public interface TreeInterface extends Scrollable {
 	public void setRootVisible(boolean rootVisible);
 
 	public boolean getScrollsOnExpand();
+	
+	public void setScrollsOnExpand(boolean scrollsOnExpand);
 
 	public boolean getShowsRootHandles();
 
@@ -104,8 +112,6 @@ public interface TreeInterface extends Scrollable {
 	public int getMinSelectionRow();
 
 	public boolean isPathSelected(TreePath path);
-
-	public boolean isRowSelected(int row);
 	
 	public TreePath getAnchorSelectionPath();
 	
@@ -129,8 +135,6 @@ public interface TreeInterface extends Scrollable {
 	
 	public void addSelectionPaths(TreePath[] paths);
 	
-	public void addSelectionRow(int row);
-	
 	public void addSelectionRows(int[] rows);
 	
 	public void removeSelectionInterval(int index0, int index1);
@@ -138,8 +142,6 @@ public interface TreeInterface extends Scrollable {
 	public void removeSelectionPath(TreePath path);
 	
 	public void removeSelectionPaths(TreePath[] paths);
-	
-	public void removeSelectionRow(int row);
 	
 	public void removeSelectionRows(int[] rows);
 
@@ -152,8 +154,6 @@ public interface TreeInterface extends Scrollable {
 	public int[] getSelectionRows();
 	
 	public void setSelectionRows(int[] rows);
-
-	public void setSelectionRow(int row);
 
 	public void setSelectionInterval(int index0, int index1);
 	

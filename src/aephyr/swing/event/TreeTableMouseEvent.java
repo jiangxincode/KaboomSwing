@@ -1,3 +1,17 @@
+/*
+ *    This program is free software: you can redistribute it and/or modify
+ *    it under the terms of the GNU Lesser General Public License as published
+ *    by the Free Software Foundation, either version 3 of the License, or
+ *    (at your option) any later version.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU Lesser General Public License for more details.
+ *
+ *    You should have received a copy of the GNU Lesser General Public License
+ *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 package aephyr.swing.event;
 
 import java.awt.Point;
@@ -80,42 +94,9 @@ public class TreeTableMouseEvent extends MouseEvent {
 	 * 
 	 * @return distance from the tree handle
 	 */
-	public int getRelativeTreePosition() {
+	public int getDistanceToTreeHandle() {
 		if (treePosition == Integer.MIN_VALUE) {
-			TreeTable treeTable = getTreeTable();
-			TreePath path = getTreePath();
-			Rectangle nb = treeTable.getPathBounds(path);
-			int x = getX();
-			boolean ltr = treeTable.getComponentOrientation().isLeftToRight();
-			if (ltr ? x < nb.x : x > nb.x + nb.width) {
-				// leading margin/columns
-				// Check if the node has a tree handle
-				TreeModel tm = treeTable.getTreeTableModel();
-				Object node = path.getLastPathComponent();
-				boolean hasTreeHandle = !(tm.isLeaf(node) || (tm.getChildCount(node) <= 0
-						&& !treeTable.hasBeenExpanded(path)));
-
-				// Check if the event location falls over the tree handle.
-				int thw = treeTable.getUI().getTreeHandleWidth(treeTable);
-				if (hasTreeHandle && ltr ?
-						x < nb.x && (thw < 0 || x > nb.x - thw) :
-							x > nb.x + nb.width && (thw < 0
-									|| x < nb.x + nb.width + thw)) {
-					// over tree handle
-					treePosition = 0;
-				} else {
-					treePosition = ltr ?
-						x - nb.x :
-						nb.x + nb.width - x;
-					if (hasTreeHandle)
-						treePosition += thw;
-				}
-			} else {
-				// node & trailing margin/columns
-				treePosition = ltr ?
-					x - nb.x :
-					nb.x + nb.width - x;
-			}
+			treePosition = getTreeTable().getDistanceToTreeHandle(getTreePath(), getX());
 		}
 		return treePosition;
 	}
@@ -127,21 +108,21 @@ public class TreeTableMouseEvent extends MouseEvent {
 	 */
 	public boolean isOverTreeMargin() {
 		return getColumn() == getTreeTable().getHierarchicalColumn()
-			&& getRelativeTreePosition() < 0;
+			&& getDistanceToTreeHandle() < 0;
 	}
 	
 	/**
 	 * @return true if the location is over the tree handle
 	 */
 	public boolean isOverTreeHandle() {
-		return getRelativeTreePosition() == 0;
+		return getDistanceToTreeHandle() == 0;
 	}
 	
 	/**
 	 * @return true if the location is over the path's bounds
 	 */
 	public boolean isOverTreeNode() {
-		int pos = getRelativeTreePosition();
+		int pos = getDistanceToTreeHandle();
 		if (pos <= 0)
 			return false;
 		Rectangle nb = getTreeTable().getPathBounds(getTreePath());

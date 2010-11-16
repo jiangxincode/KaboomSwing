@@ -1,10 +1,22 @@
+/*
+ *    This program is free software: you can redistribute it and/or modify
+ *    it under the terms of the GNU Lesser General Public License as published
+ *    by the Free Software Foundation, either version 3 of the License, or
+ *    (at your option) any later version.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU Lesser General Public License for more details.
+ *
+ *    You should have received a copy of the GNU Lesser General Public License
+ *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 package aephyr.swing.treetable;
 
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
-import java.awt.Graphics;
-import java.awt.Rectangle;
 import java.util.EventObject;
 
 import javax.swing.CellEditor;
@@ -20,7 +32,7 @@ import aephyr.swing.TreeTable;
  * A container that positions an editor component to a 
  * region of the cell.
  * <p>
- * For the tree column the bounds are shifted pasted the
+ * For the tree column the bounds are shifted past the
  * node's icon.
  * 
  * @param <E> The real CellEditor
@@ -35,6 +47,8 @@ public class CellEditorContainer<E extends CellEditor> extends Container
 	protected E editor;
 	
 	protected transient TreeTableCellRenderer renderer;
+	
+	protected transient Component rendererComponent;
 	
 	protected transient Dimension rendererSize;
 	
@@ -70,7 +84,7 @@ public class CellEditorContainer<E extends CellEditor> extends Container
 		
 		renderer = treeTable.getCellRenderer(row, col);
 		
-		Component rc = renderer.getTreeTableCellRendererComponent(
+		Component rc = rendererComponent = renderer.getTreeTableCellRendererComponent(
 				treeTable, val, sel, true, row, col, exp, leaf);
 		rendererSize = rc == null ? null : rc.getPreferredSize();
 		

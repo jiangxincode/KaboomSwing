@@ -1,3 +1,17 @@
+/*
+ *    This program is free software: you can redistribute it and/or modify
+ *    it under the terms of the GNU Lesser General Public License as published
+ *    by the Free Software Foundation, either version 3 of the License, or
+ *    (at your option) any later version.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU Lesser General Public License for more details.
+ *
+ *    You should have received a copy of the GNU Lesser General Public License
+ *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 package aephyr.swing.treetable;
 
 import java.text.Collator;
@@ -22,7 +36,7 @@ import aephyr.swing.event.TreeTableSorterListener;
 
 
 public class DefaultTreeTableSorter<T extends TreeModel, C extends TreeColumnModel, I>
-		implements TreeTableSorter<T,C> {
+		implements TreeTableSorter<T,C>, TreeTableSorter.SortCycle {
 	
 	public static final List<SortOrder> ASCENDING_DESCENDING =
 		Collections.unmodifiableList(Arrays.asList(
@@ -138,8 +152,12 @@ public class DefaultTreeTableSorter<T extends TreeModel, C extends TreeColumnMod
     	comparators[column] = comparator;
     }
     
+    boolean isComparatorSet(int column) {
+    	return comparators != null && comparators[column] != null;
+    }
+    
     public Comparator<?> getComparator(int column) {
-    	if (comparators != null && comparators[column] != null)
+    	if (isComparatorSet(column))
     		return comparators[column];
     	Class<?> cls = columnModel.getColumnClass(column);
     	if (cls == String.class)
@@ -313,7 +331,7 @@ public class DefaultTreeTableSorter<T extends TreeModel, C extends TreeColumnMod
 	}
 	
 	
-	class NodeSorter extends DefaultRowSorter<T,I> {
+	public class NodeSorter extends DefaultRowSorter<T,I> implements SortCycle {
 
 		public NodeSorter(Object root) {
 			this(null, root);
@@ -380,7 +398,7 @@ public class DefaultTreeTableSorter<T extends TreeModel, C extends TreeColumnMod
 		@Override
 		protected boolean useToString(int column) {
 			if (super.getComparator(column) != null
-					|| getMaster().getComparator(column) != null)
+					|| getMaster().isComparatorSet(column))
 				return false;
 	        Class<?> columnClass = getColumnModel().getColumnClass(column);
 	        if (columnClass == String.class)

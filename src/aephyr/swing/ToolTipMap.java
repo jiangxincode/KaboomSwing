@@ -12,12 +12,14 @@
  *    You should have received a copy of the GNU Lesser General Public License
  *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package aephyr.swing.mnemonic;
+package aephyr.swing;
 
-public interface IndexedMnemonic extends Mnemonic {
+import java.awt.event.MouseEvent;
+
+import javax.swing.JComponent;
+
+public interface ToolTipMap<C extends JComponent> {
 	
-	int getIndex();
-	
-	void setIndex(int index);
+	String getToolTipText(C c, MouseEvent e);
 	
 }

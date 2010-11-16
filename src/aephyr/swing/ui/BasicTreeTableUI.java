@@ -1,8 +1,24 @@
+/*
+ *    This program is free software: you can redistribute it and/or modify
+ *    it under the terms of the GNU Lesser General Public License as published
+ *    by the Free Software Foundation, either version 3 of the License, or
+ *    (at your option) any later version.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU Lesser General Public License for more details.
+ *
+ *    You should have received a copy of the GNU Lesser General Public License
+ *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 package aephyr.swing.ui;
 
+import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.ComponentOrientation;
+import java.awt.Composite;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -26,6 +42,7 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.lang.reflect.Field;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.EventObject;
 import java.util.List;
 import java.util.Map;
@@ -33,19 +50,19 @@ import java.util.Map;
 import javax.swing.AbstractCellEditor;
 import javax.swing.CellEditor;
 import javax.swing.CellRendererPane;
-import javax.swing.DefaultCellEditor;
 import javax.swing.DefaultListSelectionModel;
 import javax.swing.Icon;
 import javax.swing.InputMap;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
-import javax.swing.JLabel;
 import javax.swing.JTable;
 import javax.swing.JTree;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.LookAndFeel;
 import javax.swing.RowSorter;
+import javax.swing.SortOrder;
+import javax.swing.SwingConstants;
 import javax.swing.TransferHandler;
 import javax.swing.UIDefaults;
 import javax.swing.UIManager;
@@ -56,8 +73,8 @@ import javax.swing.event.CellEditorListener;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.RowSorterListener;
 import javax.swing.event.TableColumnModelEvent;
+import javax.swing.event.TableColumnModelListener;
 import javax.swing.event.TableModelEvent;
-import javax.swing.plaf.ColorUIResource;
 import javax.swing.plaf.TreeUI;
 import javax.swing.plaf.UIResource;
 import javax.swing.plaf.basic.BasicTreeUI;
@@ -92,8 +109,6 @@ import aephyr.swing.treetable.TreeTableSorter;
 
 public class BasicTreeTableUI extends TreeTableUI {
 	
-	private boolean NODE_SORTING_DISABLED = true;
-	
 	public BasicTreeTableUI() {
 		
 	}
@@ -121,9 +136,6 @@ public class BasicTreeTableUI extends TreeTableUI {
 				"Table.background", "Table.foreground", "Table.font");
 		if (treeTable.getAlternateRowColor() == null || treeTable.getAlternateRowColor() instanceof UIResource) {
 			Color c = UIManager.getColor("Table.alternateRowColor");
-			if (c != null && isNimbus()) {
-				c = new ColorUIResource(c.getRed(), c.getGreen(), c.getBlue());
-			}
 			treeTable.setAlternateRowColor(c);
 		}
 	}
@@ -242,6 +254,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 	private PropertyChangeListener propertyChangeListener;
 	
 	public void updateUI() {
+		sortWidth = -1;
 		noFocusBorder = null;
 		ltrBorder = null;
 		rtlBorder = null;
@@ -333,17 +346,21 @@ public class BasicTreeTableUI extends TreeTableUI {
 		TableColumnModel cm = treeTable.getColumnModel();
 		JTable table = createTable(treeTable.getTreeTableModel(),
 				cm, treeTable.getRowSelectionModel());
+		table.setOpaque(false);
 		table.setFillsViewportHeight(true);
 		table.setShowHorizontalLines(false);
 		table.setRowMargin(0);
 		if (cm == null) {
 			cm = table.getColumnModel();
-			cm.setColumnMargin(0);
+			cm.setColumnMargin(isNimbus() ? 0 : 3);
+			int hc = treeTable.getTreeColumnModel().getHierarchicalColumn();
+			if (hc >= 0)
+				cm.getColumn(hc).setPreferredWidth(150);
+			treeTable.setColumnModel(cm);
 		}
-		if (cm.getColumnMargin() == 0)
-			table.setShowVerticalLines(false);
+		table.setShowVerticalLines(false);
 		table.setRowHeight(20);
-		table.setOpaque(false);
+		table.setColumnModel(new ColumnModelAdapter(cm));
 		return table;
 	}
 	
@@ -387,7 +404,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 	 * @return properties to listen to.
 	 */
 	protected List<String> getProperties() {
-		return java.util.Arrays.asList("componentOrientation", "enabled", "rowSorter", "JTree.lineStyle");
+		return java.util.Arrays.asList("componentOrientation", "enabled", "rowSorter", "JTree.lineStyle", "columnModel");
 	}
 	
 	protected PropertyChangeListener createPropertyChangeListener() {
@@ -430,12 +447,13 @@ public class BasicTreeTableUI extends TreeTableUI {
 			paintTable(g);
 			if (treeTable.getRowCount() > 0) {
 				paintTree(g);
-				paintSortIndicators(g);
-				if (!treeTable.isPaintingForPrint()) {
-					if (treeTable.isFocusOwner())
-						paintFocus(g);
-					paintDropLines(g);
-				}
+				if (treeTable.isNodeSortingEnabled())
+					paintSortIndicators(g);
+			}
+			if (!treeTable.isPaintingForPrint()) {
+				if (treeTable.isFocusOwner())
+					paintFocus(g);
+				paintDropLines(g);
 			}
 		} finally {
 			treeTableCellRenderer.clearState();
@@ -443,7 +461,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 	}
 	
 	protected void paintTable(Graphics g) {
-		treeTableCellRenderer.prepareForTable();
+		treeTableCellRenderer.prepareForTable(g);
 		Graphics cg = g.create(0, 0, treeTable.getWidth(), treeTable.getHeight());
 		try {
 			table.paint(cg);
@@ -515,8 +533,9 @@ public class BasicTreeTableUI extends TreeTableUI {
 	
 	
 	protected void paintSortIndicators(Graphics g) {
-		if (NODE_SORTING_DISABLED)
-			return;
+		TreePath mouseOverPath = paintMouseOverSortPath ? mouseOverSortPath : null;
+		int mouseOverColumn = mouseOverSortColumn;
+		SortOrder order = null;
 		for (Map.Entry<TreePath,SortKey> entry : treeTable.getSortedPaths().entrySet()) {
 			TreePath path = entry.getKey();
 			if (!tree.isExpanded(path))
@@ -525,21 +544,119 @@ public class BasicTreeTableUI extends TreeTableUI {
 			int col = table.convertColumnIndexToView(key.getColumn());
 			if (col < 0)
 				continue;
-			Icon icon;
-			switch (key.getSortOrder()) {
-			default: continue;
-			case ASCENDING: icon = treeTable.getAscendingSortIcon(); break;
-			case DESCENDING: icon = treeTable.getDescendingSortIcon(); break;
+			if (mouseOverPath != null && col == mouseOverColumn && mouseOverPath.equals(path)) {
+				order = entry.getValue().getSortOrder();
+				continue;
 			}
-			Rectangle r = table.getCellRect(tree.getRowForPath(path), col, true);
-			int h = r.height/2;
-			h += r.height%2;
-			r.y -= h - icon.getIconHeight();
-			icon.paintIcon(treeTable, g, r.x+r.width-icon.getIconWidth(), r.y);
+			paintSortIndicator(g, path, col, key.getSortOrder());
+		}
+		if (mouseOverPath != null) {
+			RowSorter<?> sorter = treeTable.getRowSorter().getRowSorter(mouseOverPath);
+			if (sorter instanceof TreeTableSorter.SortCycle) {
+				List<SortOrder> cycle = ((TreeTableSorter.SortCycle)sorter).getSortCycle();
+				if (order == null) {
+					order = cycle.get(0);
+				} else {
+					int idx = cycle.indexOf(order);
+					if (idx < 0 || ++idx >= cycle.size())
+						idx = 0;
+					order = cycle.get(idx);
+				}
+			} else {
+				order = order == SortOrder.ASCENDING ? SortOrder.DESCENDING : SortOrder.ASCENDING;
+			}
+			if (order == SortOrder.UNSORTED) {
+				int row = tree.getRowForPath(mouseOverPath);
+				Rectangle r = table.getCellRect(row, mouseOverColumn, true);
+				int h = 2;
+				int w = getSortWidth() - getSortMargin()*2;
+				int y = r.y + (r.height-h)/2;
+				int align = treeTable.getAlignment(getRendererComponent(false, false, row, mouseOverColumn), row, mouseOverColumn);
+				g.setColor(Color.GRAY);
+				switch (align) {
+				case SwingConstants.CENTER:
+				case SwingConstants.LEFT:
+					g.fillRect(r.x+r.width-w-getSortMargin(), y, w, h);
+					break;
+				case SwingConstants.RIGHT:
+					g.fillRect(r.x+getSortMargin(), y, w, h);
+					break;
+				}
+			} else {
+				Graphics2D g2 = null;
+				Composite comp = null;
+				if (g instanceof Graphics2D) {
+					g2 = (Graphics2D)g;
+					comp = g2.getComposite();
+					g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
+				}
+				paintSortIndicator(g, mouseOverPath, mouseOverSortColumn, order);
+				if (g2 != null)
+					g2.setComposite(comp);
+			}
 		}
 	}
 	
+	private void paintSortIndicator(Graphics g, TreePath path, int col, SortOrder sortOrder) {
+		Icon icon;
+		switch (sortOrder) {
+		default: return;
+		case ASCENDING: icon = treeTable.getAscendingSortIcon(); break;
+		case DESCENDING: icon = treeTable.getDescendingSortIcon(); break;
+		}
+		int row = tree.getRowForPath(path);
+		Rectangle r = table.getCellRect(row, col, true);
+		int y = r.y + (r.height-icon.getIconHeight())/2;
+		int align = treeTable.getAlignment(getRendererComponent(false, false, row, col), row, col);
+		switch (align) {
+		case SwingConstants.CENTER:
+		case SwingConstants.LEFT:
+			icon.paintIcon(treeTable, g, r.x+r.width-icon.getIconWidth()-getSortMargin(), y);
+			break;
+		case SwingConstants.RIGHT:
+			icon.paintIcon(treeTable, g, r.x+getSortMargin(), y);
+			break;
+		}
+	}
 	
+	private TreePath mouseOverSortPath;
+	
+	private int mouseOverSortColumn;
+	
+	private boolean paintMouseOverSortPath;
+	
+	void setMouseOverSortIndicator(TreePath path, int col) {
+		TreePath oldPath = mouseOverSortPath;
+		int oldColumn = mouseOverSortColumn;
+		if (col != oldColumn ||
+				(path == null ? oldPath != null : !path.equals(oldPath))) {
+			mouseOverSortColumn = col;
+			mouseOverSortPath = path;
+			paintMouseOverSortPath = true;
+			if (oldPath != null)
+				repaint(oldPath, oldColumn);
+			if (path != null)
+				repaint(path, col);
+		}
+	}
+
+	private void repaint(TreePath path, int col) {
+		Rectangle r = table.getCellRect(tree.getRowForPath(path), col, true);
+		treeTable.repaint(r);
+	}
+	
+	private Component getRendererComponent(boolean sel, boolean foc, int row, int col) {
+		TreeTableCellRenderer r = treeTable.getCellRenderer(row, col);
+		Object val = treeTable.getValueAt(row, col);
+		if (col == treeTable.getHierarchicalColumn()) {
+			TreePath path = tree.getPathForRow(row);
+			return r.getTreeTableCellRendererComponent(
+					treeTable, val, sel, foc, row, col,
+					treeTable.isExpanded(path), treeTable.isLeaf(path));
+		}
+		return r.getTreeTableCellRendererComponent(
+				treeTable, val, sel, foc, row, col);
+	}
 	
 	protected void paintFocus(Graphics g) {
 		// TODO, need to use CellRendererPane for focusRenderer?
@@ -547,14 +664,14 @@ public class BasicTreeTableUI extends TreeTableUI {
 		// it is possible for a dragged column to be "land locked"
 		// on top of another if the bottom column has a large enough width
 		TreeTableCellRenderer focusRenderer = treeTable.getFocusRenderer();
+		if (focusRenderer == null)
+			return;
 		if (treeTable.isColumnFocusEnabled()) {
-			int lead = table.getColumnModel().getSelectionModel()
-					.getLeadSelectionIndex();
-			if (lead < 0 || ((focusRenderer instanceof UIResource)
-					&& lead != treeTable.getHierarchicalColumn()))
+			int leadColumn = treeTable.getLeadSelectionColumn();
+			if (leadColumn < 0)
 				return;
-			int row = tree.getRowForPath(tree.getLeadSelectionPath());
-			Rectangle r = table.getCellRect(row, lead, false);
+			int leadRow = treeTable.getLeadSelectionRow();
+			Rectangle r = table.getCellRect(leadRow, leadColumn, true);
 			Rectangle clipR = null;
 			JTableHeader header = table.getTableHeader();
 			if (header != null) {
@@ -564,7 +681,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 						r.x += header.getDraggedDistance();
 					} else {
 						int col = table.convertColumnIndexToView(dc.getModelIndex());
-						Rectangle dr = table.getCellRect(row, col, true);
+						Rectangle dr = table.getCellRect(leadRow, col, true);
 						dr.x += header.getDraggedDistance();
 						clipR = r.intersection(dr);
 						clipR.x -= r.x;
@@ -574,7 +691,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 			if (!g.getClip().intersects(r))
 				return;
 			Component c = focusRenderer.getTreeTableCellRendererComponent(
-					treeTable, "", false, true, row, lead);
+					treeTable, "", false, true, leadRow, leadColumn);
 			c.setBounds(0, 0, r.width, r.height);
 			Graphics cg = g.create(r.x, r.y, r.width, r.height);
 			try {
@@ -652,15 +769,13 @@ public class BasicTreeTableUI extends TreeTableUI {
 			tree.setBounds(0, 0, 0, 0);
 		} else {
 			Rectangle r = table.getCellRect(-1, hier, true);
-			// subtract the column margin here since getCellRect()
-			// won't (might not) do it when the cell isn't valid
-			r.width -= treeTable.getColumnModel().getColumnMargin();
-			r.height = table.getHeight();
+			int cm = treeTable.getColumnModel().getColumnMargin();
+			r.x += cm/2;
+			r.width -= cm;
+			r.height = treeTable.getHeight();
 			tree.setBounds(r);
 		}
 	}
-
-	
 	
 	
 	
@@ -731,7 +846,47 @@ public class BasicTreeTableUI extends TreeTableUI {
 		return tree.getClosestPathForLocation(x-tree.getX(), y-tree.getY());
 	}
 	
+	static boolean hasTreeHandle(TreeTable treeTable, TreePath path) {
+		return !(treeTable.isLeaf(path) ||
+				(treeTable.getChildCount(path) <= 0
+						&& !treeTable.hasBeenExpanded(path)));		
+	}
 	
+	static boolean isOverTreeHandle(boolean ltr, Rectangle nb, int thw, int x) {
+		return ltr ?
+				x < nb.x && (thw < 0 || x > nb.x - thw) :
+				x > nb.x + nb.width && (thw < 0
+					|| x < nb.x + nb.width + thw);
+	}
+	
+	@Override
+	public int getDistanceToTreeHandle(TreeTable treeTable, TreePath path, int x) {
+		Rectangle nb = tree.getPathBounds(path);
+		boolean ltr = treeTable.getComponentOrientation().isLeftToRight();
+		int treePosition;
+		if (ltr ? x < nb.x : x > nb.x + nb.width) {
+			// leading margin/columns
+			// Check if the node has a tree handle
+			boolean hasTreeHandle = hasTreeHandle(treeTable, path);
+
+			// Check if the event location falls over the tree handle.
+			if (hasTreeHandle && isOverTreeHandle(ltr, nb, getTreeHandleWidth(), x)) {
+				treePosition = 0;
+			} else {
+				treePosition = ltr ?
+						x - nb.x :
+						nb.x + nb.width - x;
+				if (hasTreeHandle)
+					treePosition += getTreeHandleWidth();
+			}
+		} else {
+			// node & trailing margin/columns
+			treePosition = ltr ?
+				x - nb.x :
+				nb.x + nb.width - x;
+		}
+		return treePosition;
+	}
 	
 	
 	
@@ -1013,23 +1168,19 @@ public class BasicTreeTableUI extends TreeTableUI {
 		}
 		
 		public Component prepareRenderer(TableCellRenderer renderer, int row, int column) {
-			boolean hier = column == treeTable.getHierarchicalColumn();
+			TreeTable t = treeTable;
+			boolean hier = column == t.getHierarchicalColumn();
 			Object value = hier ? "" : getValueAt(row, column);
-			boolean isSelected = false;
-			boolean hasFocus = false;
-			if (!isPaintingForPrint()) {
-				isSelected = isCellSelected(row, column);
-				if (!hier && treeTable.getFocusRenderer() instanceof UIResource &&
-						(treeTable.isColumnFocusEnabled() || getColumnCount() == 1)) {
-					boolean rowIsLead =
-						(selectionModel.getLeadSelectionIndex() == row);
-					boolean colIsLead =
-						(columnModel.getSelectionModel().getLeadSelectionIndex() == column);
-					hasFocus = (rowIsLead && colIsLead) && isFocusOwner();
-				}
-			}
+			boolean sel = !isPaintingForPrint() && isCellSelected(row, column);
+//			boolean foc = t.isColumnFocusEnabled()
+//				&& t.getFocusRenderer() == null
+//				&& column == t.getLeadSelectionColumn()
+//				&& row == t.getLeadSelectionRow()
+//				&& t.isFocusOwner();
+			// Renderer will determine hasFocus value
+			boolean foc = false;
 			return renderer.getTableCellRendererComponent(
-					this, value, isSelected, hasFocus, row, column);
+					this, value, sel, foc, row, column);
 		}
 		
 		public void tableChanged(TableModelEvent e) {
@@ -1067,7 +1218,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 				TableColumnModel cm = getColumnModel();
 				while (cm.getColumnCount() > 0)
 					cm.removeColumn(cm.getColumn(0));
-
+				
 				// Create new columns from the data model info
 				for (int i = 0; i < m.getColumnCount(); i++)
 					addColumn(new TreeTableColumn(i));
@@ -1086,14 +1237,81 @@ public class BasicTreeTableUI extends TreeTableUI {
 			this.rowSorter = rowSorter;
 			firePropertyChange("rowSorter", oldValue, rowSorter);
 		}
-		
+
 		public TransferHandler getTransferHandler() {
 			TransferHandler th = treeTable.getTransferHandler();
 			if (th != null)
 				return th;
 			return super.getTransferHandler();
 		}
+
+
+//		private int limit(int i, int a, int b) {
+//			return Math.min(b, Math.max(i, a));
+//		}
+//		private int getAdjustedIndex(int index, boolean row) {
+//			int compare = row ? getRowCount() : getColumnCount();
+//			return index < compare ? index : -1;
+//		}
+
+//		/**
+//		 * Overridden to include intercell spacing in repaint
+//		 */
+//		@Override
+//		public void columnSelectionChanged(ListSelectionEvent e) {
+////			boolean isAdjusting = e.getValueIsAdjusting();
+////			if (columnSelectionAdjusting && !isAdjusting) {
+////				// The assumption is that when the model is no longer adjusting
+////				// we will have already gotten all the changes, and therefore
+////				// don't need to do an additional paint.
+////				columnSelectionAdjusting = false;
+////				return;
+////			}
+////			columnSelectionAdjusting = isAdjusting;
+//			// The getCellRect() call will fail unless there is at least one row.
+//			if (getRowCount() <= 0 || getColumnCount() <= 0) {
+//				return;
+//			}
+//			int firstIndex = limit(e.getFirstIndex(), 0, getColumnCount()-1);
+//			int lastIndex = limit(e.getLastIndex(), 0, getColumnCount()-1);
+//			int minRow = 0;
+//			int maxRow = getRowCount() - 1;
+//			if (getRowSelectionAllowed()) {
+//				minRow = selectionModel.getMinSelectionIndex();
+//				maxRow = selectionModel.getMaxSelectionIndex();
+//				int leadRow = getAdjustedIndex(selectionModel.getLeadSelectionIndex(), true);
+//
+//				if (minRow == -1 || maxRow == -1) {
+//					if (leadRow == -1) {
+//						// nothing to repaint, return
+//						return;
+//					}
+//
+//					// only thing to repaint is the lead
+//					minRow = maxRow = leadRow;
+//				} else {
+//					// We need to consider more than just the range between
+//					// the min and max selected index. The lead row, which could
+//					// be outside this range, should be considered also.
+//					if (leadRow != -1) {
+//						minRow = Math.min(minRow, leadRow);
+//						maxRow = Math.max(maxRow, leadRow);
+//					}
+//				}
+//			}
+//			Rectangle r = getCellRect(minRow, firstIndex, true);
+//			r.add(getCellRect(maxRow, lastIndex, true));
+//			repaint(r);
+//		}
 		
+		public Rectangle getCellBounds(int row, int column, boolean includeSpacing) {
+			return super.getCellRect(row, column, includeSpacing);
+		}
+
+//		@Override
+//		public Rectangle getCellRect(int row, int column, boolean includeSpacing) {
+//			return super.getCellRect(row, column, true);
+//		}
 		
 	}
 
@@ -1192,6 +1410,111 @@ public class BasicTreeTableUI extends TreeTableUI {
 		public void removeRowSorterListener(RowSorterListener l) {}
 
 	}
+	
+	private static class ColumnModelAdapter implements TableColumnModel {
+		
+		ColumnModelAdapter(TableColumnModel cm) {
+			delegate = cm;
+		}
+		
+		private TableColumnModel delegate;
+		
+		@Override
+		public int getColumnMargin() {
+			return 0;
+		}
+
+		@Override
+		public void addColumn(TableColumn aColumn) {
+			delegate.addColumn(aColumn);
+		}
+
+		@Override
+		public void addColumnModelListener(TableColumnModelListener x) {
+			delegate.addColumnModelListener(x);
+		}
+
+		@Override
+		public TableColumn getColumn(int columnIndex) {
+			return delegate.getColumn(columnIndex);
+		}
+
+		@Override
+		public int getColumnCount() {
+			return delegate.getColumnCount();
+		}
+
+		@Override
+		public int getColumnIndex(Object columnIdentifier) {
+			return delegate.getColumnIndex(columnIdentifier);
+		}
+
+		@Override
+		public int getColumnIndexAtX(int xPosition) {
+			return delegate.getColumnIndexAtX(xPosition);
+		}
+
+		@Override
+		public Enumeration<TableColumn> getColumns() {
+			return delegate.getColumns();
+		}
+
+		@Override
+		public boolean getColumnSelectionAllowed() {
+			return delegate.getColumnSelectionAllowed();
+		}
+
+		@Override
+		public int getSelectedColumnCount() {
+			return delegate.getSelectedColumnCount();
+		}
+
+		@Override
+		public int[] getSelectedColumns() {
+			return delegate.getSelectedColumns();
+		}
+
+		@Override
+		public ListSelectionModel getSelectionModel() {
+			return delegate.getSelectionModel();
+		}
+
+		@Override
+		public int getTotalColumnWidth() {
+			return delegate.getTotalColumnWidth();
+		}
+
+		@Override
+		public void moveColumn(int columnIndex, int newIndex) {
+			delegate.moveColumn(columnIndex, newIndex);
+		}
+
+		@Override
+		public void removeColumn(TableColumn column) {
+			delegate.removeColumn(column);
+		}
+
+		@Override
+		public void removeColumnModelListener(TableColumnModelListener x) {
+			delegate.removeColumnModelListener(x);
+		}
+
+		@Override
+		public void setColumnMargin(int newMargin) {
+			delegate.setColumnMargin(newMargin);
+		}
+
+		@Override
+		public void setColumnSelectionAllowed(boolean flag) {
+			delegate.setColumnSelectionAllowed(flag);
+		}
+
+		@Override
+		public void setSelectionModel(ListSelectionModel newModel) {
+			delegate.setSelectionModel(newModel);
+		}
+		
+	}
 
 	
 	private static Color createColor(Color c) {
@@ -1261,6 +1584,12 @@ public class BasicTreeTableUI extends TreeTableUI {
 		}
 		
 		@Override
+		public void prepareForTable(Graphics g) {
+			super.prepareForTable(g);
+			focus = false;
+		}
+		
+		@Override
 		protected void prepareBackgroundColors() {
 			super.prepareBackgroundColors();
 			backgroundColor = createColor(backgroundColor);
@@ -1278,6 +1607,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 			current = map;
 			clearCachedOverrides(tree, Region.TREE);
 			tree.putClientProperty("Nimbus.Overrides", map);
+			focus = false;
 		}
 		
 		@Override
@@ -1290,8 +1620,6 @@ public class BasicTreeTableUI extends TreeTableUI {
 			return createColor(super.getDropCellBackground());
 		}
 		
-		private boolean selected;
-		
 		private boolean focus;
 		
 		private int row;
@@ -1303,7 +1631,6 @@ public class BasicTreeTableUI extends TreeTableUI {
 				Object val, boolean sel, boolean foc, int row, int col) {
 			Component c = super.getTreeTableCellRendererComponent(
 					treeTable, val, sel, foc, row, col);
-			selected = sel;
 			focus = foc;
 			this.row = row;
 			this.column = col;
@@ -1312,19 +1639,29 @@ public class BasicTreeTableUI extends TreeTableUI {
 		
 		@Override
 		protected void paintTableComponent(Graphics g, Component c) {
-			boolean foc = false;
-			if (c instanceof JCheckBox) {
-				//Nimbus' default boolean renderer doesn't paint its background
-				g.setColor(c.getBackground());
-				g.fillRect(0, 0, getWidth(), getHeight());
-				foc = focus;
-			}
 			super.paintTableComponent(g, c);
-			if (foc) {
-				c = treeTable.getFocusRenderer().getTreeTableCellRendererComponent(
+			// Nimbus fails to paint its focus for Boolean columns
+			if (focus && c instanceof JCheckBox) {
+				Component fc = getFocusRenderer().getTreeTableCellRendererComponent(
 						treeTable, "", false, true, row, column);
-				super.paintTableComponent(g, c);
+				if (treeTable.isNodeSortingEnabled()) {
+					paintComponent(g, fc, treeTable.getAlignment(c, row, column));
+				} else {
+					paintComponent(g, fc, table, 0, 0, getWidth(), getHeight(), true);
+				}
 			}
+		}
+		
+		private TreeTableCellRenderer focusRenderer;
+		
+		private TreeTableCellRenderer getFocusRenderer() {
+			TreeTableCellRenderer r = treeTable.getFocusRenderer();
+			if (r == null) {
+				if (focusRenderer == null)
+					focusRenderer = new FocusRenderer();
+				r = focusRenderer;
+			}
+			return r;
 		}
 		
 		
@@ -1369,28 +1706,40 @@ public class BasicTreeTableUI extends TreeTableUI {
 		
 	}
  	
+ 	private int sortWidth = -1;
  	
+	protected int getSortWidth() {
+		if (sortWidth < 0) {
+			sortWidth = getSortMargin()*2 + Math.max(
+					treeTable.getAscendingSortIcon().getIconWidth(),
+					treeTable.getDescendingSortIcon().getIconWidth());
+		}
+		return sortWidth;
+	}
+	
+	protected int getSortMargin() {
+		return 2;
+	}
  	
- 	
-	private static Border ltrBorder;
+	private Border ltrBorder;
 	
-	private static Border rtlBorder;
+	private Border rtlBorder;
 	
-	private static Border noFocusBorder;
+	private Border noFocusBorder;
 	
-	private static Border getDefaultLTRBorder() {
+	private Border getDefaultLTRBorder() {
 		if (ltrBorder == null)
 			ltrBorder = new EmptyBorder(1, 0, 1, 1);
 		return ltrBorder;
 	}
 	
-	private static Border getDefaultRTLBorder() {
+	private Border getDefaultRTLBorder() {
 		if (rtlBorder == null)
 			rtlBorder = new EmptyBorder(1, 1, 1, 0);
 		return rtlBorder;
 	}
 	
-	private static Border getDefaultNoFocusBorder() {
+	private Border getDefaultNoFocusBorder() {
 		if (noFocusBorder == null) {
 			noFocusBorder = UIManager.getBorder("Table.cellNoFocusBorder");
 			if (noFocusBorder == null)
@@ -1407,9 +1756,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 
 		protected Component component;
 
-		protected boolean tableColumn;
-		
-		protected int treeColumn;
+		protected boolean tableColumn = true;
 		
 		protected boolean treeColumnSelected;
 		
@@ -1421,12 +1768,47 @@ public class BasicTreeTableUI extends TreeTableUI {
 
 		protected int row;
 		
+		protected int column;
+		
 		protected Color backgroundColor;
 		
 		protected Color alternateRowColor;
 		
-		public void prepareForTable() {
+		private TableCellRenderer renderer;
+		
+		
+		private int left, right, top, bottom;
+		
+		
+		private int focusRow, focusColumn;
+		
+		
+		public void loadRenderer(Class<?> cls) {
+			renderer = table.getDefaultRenderer(cls);
+		}
+		
+		public void prepareForTable(Graphics g) {
 			prepareBackgroundColors();
+			int cm = treeTable.getColumnModel().getColumnMargin();
+			int rm = treeTable.getRowMargin();
+			if (cm != 0 || rm != 0) {
+				left = cm/2;
+				right = left + cm%2;
+				top = rm/2;
+				bottom = top + rm%2;
+			} else {
+				left = right = top = bottom = 0;
+			}
+			if (treeTable.getFocusRenderer() != null) {
+				focusRow = focusColumn = -1;
+			} else {
+				focusRow = tree.getLeadSelectionRow();
+				if (treeTable.isColumnFocusEnabled()) {
+					focusColumn = Integer.MIN_VALUE;
+				} else {
+					focusColumn = treeTable.getLeadSelectionColumn();
+				}
+			}
 		}
 		
 		protected void prepareBackgroundColors() {
@@ -1437,18 +1819,23 @@ public class BasicTreeTableUI extends TreeTableUI {
 		}
 		
 		public void prepareForTree() {
-			treeColumn = treeTable.getHierarchicalColumn();
+			tableColumn = false;
+			column = treeTable.getHierarchicalColumn();
 			rowSelectionAllowed = table.getRowSelectionAllowed();
 			columnSelectionAllowed = table.getColumnSelectionAllowed();
-			treeColumnSelected = table.isColumnSelected(treeColumn);
+			treeColumnSelected = table.isColumnSelected(column);
 		}
 		
 		public void clearState() {
+			renderer = null;
 			component = null;
 			node = null;
 			backgroundColor = null;
 			alternateRowColor = null;
 			removeAll();
+			
+			// must be true when the state is invalid
+			tableColumn = true;
 		}
 		
 		// initial entry point while painting table
@@ -1456,12 +1843,14 @@ public class BasicTreeTableUI extends TreeTableUI {
 		public Component getTableCellRendererComponent(JTable table,
 				Object val, boolean sel, boolean foc, int row, int col) {
 			tableColumn = true;
-			treeColumn = -1;
-			component = getTableComponent(table, val, sel, foc, row, col);
+			this.row = row;
+			column = col;
+			foc = isFocused(row, col);
+			component = getTableComponent(val, sel, foc, row, col);
 			return this;
 		}
 
-		private Component getTableComponent(JTable table, Object val,
+		private Component getTableComponent(Object val,
 				boolean sel, boolean foc, int row, int col) {
 			return treeTable.getCellRenderer(row, col).getTreeTableCellRendererComponent(
 					treeTable, val, sel, foc, row, col);
@@ -1471,28 +1860,26 @@ public class BasicTreeTableUI extends TreeTableUI {
 		@Override
 		public Component getTreeCellRendererComponent(JTree tree, Object val,
 				boolean sel, boolean exp, boolean leaf, int row, boolean foc) {
-			tableColumn = false;
-			if (treeColumn < 0)
-				treeColumn = treeTable.getHierarchicalColumn();
+			if (tableColumn) {
+				tableColumn = false;
+				column = treeTable.getHierarchicalColumn();
+			}
 			
 			node = val;
 			this.row = row;
 			
 			// implement JTable's selection idioms.
 			sel = isSelected(sel);
-
-			// Discrepancy between how JTree and JTable paints focus on some
-			//  L&F's so use focusRenderer to paint tree's focus same as table.
-			foc = false;
+			
+			foc = isFocused(row, column);
 
 			TreeColumnModel model = treeTable.getTreeColumnModel();
 			val = model.getValueAt(val, model.getHierarchicalColumn());
-			component = getTreeComponent(tree, val,
-					sel, foc, row, treeColumn, exp, leaf);
+			component = getTreeComponent(val, sel, foc, row, column, exp, leaf);
 			return this;
 		}
 
-		private Component getTreeComponent(JTree tree, Object val, boolean sel,
+		private Component getTreeComponent(Object val, boolean sel,
 				boolean foc, int row, int col, boolean exp, boolean leaf) {
 			return treeTable.getCellRenderer(row, col).getTreeTableCellRendererComponent(
 					treeTable, val, sel, foc, row, col, exp, leaf);
@@ -1505,26 +1892,20 @@ public class BasicTreeTableUI extends TreeTableUI {
 					sel && treeColumnSelected : treeColumnSelected;
 		}
 		
-		private TableCellRenderer renderer;
-		
-		public void loadRenderer(Class<?> cls) {
-			renderer = table.getDefaultRenderer(cls);
+		boolean isFocused(int row, int col) {
+			return row == focusRow && focusColumn < -1 ? true : col == focusColumn;
 		}
 		
 		// entry point for default table column renderers
 		@Override
 		public Component getTreeTableCellRendererComponent(TreeTable treeTable,
 				Object val, boolean sel, boolean foc, int row, int col) {
-//			System.out.println("yo " + sel + " " + row);
 			Component c = renderer.getTableCellRendererComponent(
 					table, val, sel, foc, row, col);
-//			if (!sel)
-				configureCellRenderer(c, sel, row, col);
+			if (c instanceof JComponent)
+				((JComponent)c).setOpaque(false);
+			configureCellRenderer(c, sel, row, col);
 			return c;
-		}
-		
-		protected Color getBackgroundColor() {
-			return treeTable.getBackground();
 		}
 		
 		// entry point for default tree column renderer
@@ -1534,14 +1915,29 @@ public class BasicTreeTableUI extends TreeTableUI {
 			return defaultTreeCellRenderer.getTreeTableCellRendererComponent(
 					treeTable, val, sel, foc, row, col, exp, leaf);
 		}
-				
-
+		
+		private Dimension getComponentPreferredSize() {
+			Dimension size = component.getPreferredSize();
+			if (treeTable.isNodeSortingEnabled()) {
+				switch (treeTable.getAlignment(component, row, column)) {
+				case SwingConstants.CENTER:
+					size.width += getSortWidth()*2;
+					break;
+				case SwingConstants.LEFT:
+				case SwingConstants.RIGHT:
+					size.width += getSortWidth();
+					break;
+				}
+			}
+			return size;
+		}
+		
 		@Override
 		public Dimension getPreferredSize() {
 			// for table column or tree column with
 			// fixed row height, return the cell's size
 			if (tableColumn || tree.getRowHeight() > 0)
-				return component.getPreferredSize();
+				return getComponentPreferredSize();
 			
 			// BasicTreeUI requests node dimensions for the root
 			// even if it isn't visible.
@@ -1558,15 +1954,14 @@ public class BasicTreeTableUI extends TreeTableUI {
 			// in the row.
 			int margin = treeTable.getRowMargin();
 			Dimension size;
-			int tc = treeColumn;
+			int tc = column;
 			if (tc >= 0) {
-				size = component.getPreferredSize();
+				size = getComponentPreferredSize();
 				size.height += margin;
 			} else {
 				size = new Dimension(1, margin);
 			}
-			JTable tbl = table;
-			TableColumnModel cm = tbl.getColumnModel();
+			TableColumnModel cm = treeTable.getColumnModel();
 			TreeColumnModel rm = treeTable.getTreeColumnModel();
 			Object nod = node;
 			// TODO (TBD) use row -1 because this can be called
@@ -1576,7 +1971,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 				if (col == tc)
 					continue;
 				Object val = rm.getValueAt(nod, cm.getColumn(col).getModelIndex());
-				Component c = getTableComponent(tbl, val, false, false, row, col);
+				Component c = getTableComponent(val, false, false, row, col);
 				size.height = Math.max(size.height, c.getPreferredSize().height + margin);
 			}
 			return size;
@@ -1591,47 +1986,57 @@ public class BasicTreeTableUI extends TreeTableUI {
 			}
 		}
 		
+		/**
+		 * Shifts bounds to account for TreeTable's cell margins.
+		 */
+		void paintComponent(Graphics g, Component c, int x, int y, int w, int h) {
+			x += left;
+			y += top;
+			w -= left + right;
+			h -= top + bottom;
+			paintComponent(g, c, null, x, y, w, h, true);
+		}
+		
+		void paintComponent(Graphics g, Component c, int align) {
+			int w = getSortWidth();
+			switch (align) {
+			case SwingConstants.CENTER:
+				paintComponent(g, c, w, 0, getWidth()-w-w, getHeight());
+				break;
+			case SwingConstants.LEFT:
+				paintComponent(g, c, 0, 0, getWidth()-w, getHeight());
+				break;
+			case SwingConstants.RIGHT:
+				paintComponent(g, c, w, 0, getWidth()-w, getHeight());
+				break;
+			}
+		}
+		
 		protected void paintTableComponent(Graphics g, Component c) {
-			paintComponent(g, c, table, 0, 0, getWidth(), getHeight(), true);
+			// paint background including margins
+			if (c.isBackgroundSet()) {
+				g.setColor(c.getBackground());
+				g.fillRect(0, 0, getWidth(), getHeight());
+			}
+			
+			if (treeTable.isNodeSortingEnabled()) {
+				paintComponent(g, c, treeTable.getAlignment(c, row, column));
+			} else {
+				paintComponent(g, c, 0, 0, getWidth(), getHeight());
+			}
 		}
 		
 		protected void paintTreeComponent(Graphics g, Component c) {
-			// TODO text alignment is broken
-			// is also different between DefaultTreeTableCellRenderer and JTree's default for Nimbus, possibly others.
-			
 			int x = 0;
 			int y = 0;
 			int w = getWidth();
 			int h = getHeight();
 			if (getX() + w > tree.getWidth())
 				w = tree.getWidth() - getX();
-			component.setBounds(0, 0, w, h);
-			
-			int margin = treeTable.getRowMargin();
-			int mod = margin % 2;
-			margin /= 2;
-			y += margin;
-			h -= margin + mod;
-			
-			if (c.getParent() != this)
-				add(c);
-			boolean wasDoubleBuffered = false;
-			if ((c instanceof JComponent) && ((JComponent)c).isDoubleBuffered()) {
-				wasDoubleBuffered = true;
-				((JComponent)c).setDoubleBuffered(false);
-			}
-			Graphics cg = g.create(x, y, w, h);
-			try {
-//				cg.translate(0, -margin);
-				cg.translate(0, -margin - mod);
-				cg.clipRect(0, 0, w, h);
-				c.paint(cg);
-			} finally {
-				cg.dispose();
-			}
-			if (wasDoubleBuffered && (c instanceof JComponent))
-				((JComponent)c).setDoubleBuffered(true);
-			c.setBounds(-w, -h, 0, 0);
+			// only shift y-axis, tree's bounds are already shifted for x-axis
+			y += top;
+			h -= top + bottom;
+			paintComponent(g, c, null, x, y, w, h, true);
 		}
 		
 		/**
@@ -1714,8 +2119,9 @@ public class BasicTreeTableUI extends TreeTableUI {
 		public boolean configureCellRenderer(DefaultTreeTableCellRenderer renderer,
 				TreeTable treeTable, Object value, boolean selected,
 				boolean hasFocus, int row, int column) {
+			
+			renderer.setOpaque(false);
 
-			renderer.setOpaque(true);
 			renderer.setIcon(null);
 			renderer.setDisabledIcon(null);
 
@@ -1773,7 +2179,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 					treeTable.getForeground();
 			renderer.setForeground(fg);
 
-			Icon icon = treeTable.getIconForRow(row, exp, leaf);
+			Icon icon = treeTable.getIcon(val, exp, leaf);
 			if (!treeTable.isEnabled()) {
 				renderer.setEnabled(false);
 				renderer.setDisabledIcon(icon);
@@ -1886,7 +2292,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 			if (treeColumn) {
 				TreePath path = tree.getPathForRow(row);
 				boolean expanded = tree.isExpanded(path);
-				boolean leaf = tree.getModel().isLeaf(path.getLastPathComponent());
+				boolean leaf = treeTable.isLeaf(path);
 				c = treeTableEditor.getTreeTableCellEditorComponent(
 						treeTable, value, selected, row, column, expanded, leaf);	
 			} else {
@@ -2003,6 +2409,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 
 	
 	private int treeHandleWidth = -1;
+	
 
 	/**
 	 * If a negative number is returned, then all events that occur in the
@@ -2012,11 +2419,6 @@ public class BasicTreeTableUI extends TreeTableUI {
 	 */
 	protected int getTreeHandleWidth() {
 		return treeHandleWidth;
-	}
-	
-	@Override
-	public int getTreeHandleWidth(TreeTable treeTable) {
-		return getTreeHandleWidth();
 	}
 	
 	protected void processKeyBinding(JComponent c, KeyStroke ks,
@@ -2031,6 +2433,16 @@ public class BasicTreeTableUI extends TreeTableUI {
 		
 		public Handler() {
 		}
+		
+		private boolean sendDragToTable = true;
+		
+		private boolean sortPressed = false;
+		
+		private MouseEvent dndArmedEvent;
+		
+		private int motionThreshold;
+		
+
 
 		@Override
 		public void keyPressed(KeyEvent e) {
@@ -2049,28 +2461,27 @@ public class BasicTreeTableUI extends TreeTableUI {
 				changeSelection(e);
 		}
 		
-		private MouseEvent dndArmedEvent;
-		
-		private int motionThreshold;
-		
-//		private boolean isDragging;
-		
 		@Override
 		public void mousePressed(MouseEvent e) {
 			processMouseEvent(e);
-			if (treeTable.getDragEnabled()) {
-				motionThreshold = DragSource.getDragThreshold();
-				if (motionThreshold < 10)
-					motionThreshold = 10;
+			if (e.isConsumed()) {
+				sendDragToTable = false;
+			} else if (treeTable.getDragEnabled()) {
+				motionThreshold = Math.max(10, DragSource.getDragThreshold());
 				dndArmedEvent = e;
 			}
 		}
 		
 		@Override
+		public void mouseExited(MouseEvent e) {
+			setMouseOverSortIndicator(null, -1);
+		}
+		
+		@Override
 		public void mouseReleased(MouseEvent e) {
 			processMouseEvent(e);
-//			isDragging = false;
 			dndArmedEvent = null;
+			sendDragToTable = true;
 		}
 		
 		@Override
@@ -2080,10 +2491,42 @@ public class BasicTreeTableUI extends TreeTableUI {
 		
 		@Override
 		public void mouseMoved(MouseEvent e) {
-			// TODO update sort indicator
+			if (!treeTable.isNodeSortingEnabled() || treeTable.getRowSorter() == null) {
+				setMouseOverSortIndicator(null, -1);
+			} else if (!treeTable.isEditing()) {
+				Point pt = e.getPoint();
+				int col = table.columnAtPoint(pt);
+				if (col < 0) {
+					setMouseOverSortIndicator(null, -1);
+				} else {
+					TreePath path = getSortPath(pt, col);
+					setMouseOverSortIndicator(path, path == null ? -1 : col);
+				}
+			}
 		}
 		
-		private boolean sendDragToTable = true;
+		private TreePath getSortPath(Point pt, int col) {
+			int row = table.rowAtPoint(pt);
+			if (row < 0)
+				return null;
+			TreePath path = tree.getPathForRow(row);
+			if (treeTable.isLeaf(path) || treeTable.getChildCount(path) == 0)
+				return null;
+			Rectangle r = table.getCellRect(row, col, true);
+			switch (treeTable.getAlignment(getRendererComponent(false, false, row, col), row, col)) {
+			default: return null;
+			case SwingConstants.CENTER:
+			case SwingConstants.LEFT:
+				if (pt.x < r.x + r.width - getSortWidth())
+					return null;
+				break;
+			case SwingConstants.RIGHT:
+				if (pt.x > r.x + getSortWidth())
+					return null;
+				break;
+			}
+			return path;
+		}
 		
 		@Override
 		public void mouseDragged(MouseEvent e) {
@@ -2095,7 +2538,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 					int dy = Math.abs(e.getY() - dndArmedEvent.getY());
 					if ((dx > motionThreshold) || (dy > motionThreshold)) {
 						TransferHandler th = treeTable.getTransferHandler();
-						int actions = th.getSourceActions(treeTable);
+						int actions = th == null ? 0 : th.getSourceActions(treeTable);
 						if (actions != 0) {
 //							isDragging = true;
 							// TODO, determine action
@@ -2173,14 +2616,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 				dispatchMouseEvent(e, table);
 		}
 		
-		private boolean sortPressed = false;
-		
 		private boolean sortNode(MouseEvent e) {
-			if (NODE_SORTING_DISABLED)
-				return false;
-			TreeTableSorter<?,?> sorter = treeTable.getRowSorter();
-			if (sorter == null)
-				return false;
 			switch (e.getID()) {
 			default:
 				return false;
@@ -2188,31 +2624,22 @@ public class BasicTreeTableUI extends TreeTableUI {
 				try {
 					return sortPressed;
 				} finally {
-					sendDragToTable = true;
 					sortPressed = false;
 				}
 			case MouseEvent.MOUSE_PRESSED:
 			}
-			Point pt = e.getPoint();
-			int col = table.columnAtPoint(pt);
-			if (col < 0)
+			if (mouseOverSortPath == null)
 				return false;
-			int row = table.rowAtPoint(pt);
-			if (row < 0)
+			TreeTableSorter<?,?> sorter = treeTable.getRowSorter();
+			if (sorter == null)
 				return false;
-			TreePath path = tree.getPathForRow(row);
-			if (treeTable.getTreeModel().isLeaf(path.getLastPathComponent())
-					|| tree.getModel().getChildCount(path.getLastPathComponent()) == 0)
-				return false;
-			Rectangle r = table.getCellRect(row, col, true);
-			if (e.getX() < r.x + r.width - 10)
-				return false;
-			RowSorter<?> nodeSorter = sorter.getRowSorter(path);
+			RowSorter<?> nodeSorter = sorter.getRowSorter(mouseOverSortPath);
 			if (nodeSorter == null)
 				return false;
-			nodeSorter.toggleSortOrder(table.convertColumnIndexToModel(col));
-			sendDragToTable = false;
+			nodeSorter.toggleSortOrder(table.convertColumnIndexToModel(mouseOverSortColumn));
+			paintMouseOverSortPath = false;
 			sortPressed = true;
+			e.consume();
 			return true;
 		}
 		
@@ -2222,8 +2649,6 @@ public class BasicTreeTableUI extends TreeTableUI {
 			case MouseEvent.MOUSE_EXITED:
 				return false;
 			}
-			if (!sendDragToTable && e.getID() == MouseEvent.MOUSE_RELEASED)
-				sendDragToTable = true;
 			int hier = treeTable.getHierarchicalColumn();
 			if (hier < 0)
 				return false;
@@ -2234,24 +2659,13 @@ public class BasicTreeTableUI extends TreeTableUI {
 			int row = table.rowAtPoint(pt);
 			if (row < 0)
 				return false;
-			TreeModel tm = tree.getModel();
 			TreePath path = tree.getPathForRow(row);
-			Object node = path.getLastPathComponent();
-			// Check if the node has a tree handle
-			if (tm.isLeaf(node) || (tm.getChildCount(node) <= 0
-					&& !tree.hasBeenExpanded(path)))
+			if (!hasTreeHandle(treeTable, path))
 				return false;
-			// Check if the event location falls over the tree handle.
-			int x = e.getX() - tree.getX();
-			Rectangle nb = tree.getRowBounds(row);
-			int thw = getTreeHandleWidth();
-			if (tree.getComponentOrientation().isLeftToRight() ?
-					x < nb.x && (thw < 0 || x > nb.x - thw) :
-						x > nb.x + nb.width && (thw < 0
-								|| x < nb.x + nb.width + thw)) {
+			if (isOverTreeHandle(tree.getComponentOrientation().isLeftToRight(),
+					tree.getPathBounds(path), getTreeHandleWidth(), e.getX()-tree.getX())) {
 				dispatchMouseEvent(e, tree);
-				if (e.getID() == MouseEvent.MOUSE_PRESSED)
-					sendDragToTable = false;
+				e.consume();
 				return true;
 			}
 			return false;
@@ -2283,6 +2697,8 @@ public class BasicTreeTableUI extends TreeTableUI {
 				treeTable.repaint();
 			} else if ("JTree.lineStyle".equals(name)) {
 				tree.putClientProperty("JTree.lineStyle", evt.getNewValue());
+			} else if ("columnModel".equals(name)) {
+				table.setColumnModel(new ColumnModelAdapter((TableColumnModel)evt.getNewValue()));
 			}
 		}
 
@@ -2382,7 +2798,8 @@ public class BasicTreeTableUI extends TreeTableUI {
 
 		private boolean isNavigationKey(JTable table, KeyEvent event) {
 			InputMap inputMap = table.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
-			return inputMap.get(KeyStroke.getKeyStroke(event.getKeyCode(), 0)) != null;
+			return inputMap != null
+				&& inputMap.get(KeyStroke.getKeyStroke(event.getKeyCode(), 0)) != null;
 		}  
 
 	}
@@ -2399,7 +2816,7 @@ public class BasicTreeTableUI extends TreeTableUI {
 	// adapted from BasicTableUI.paintDropLines...
 	private void paintDropLines(Graphics g) {
 		TreeTable.DropLocation loc = treeTable.getDropLocation();
-		if (loc == null)
+		if (loc == null || !loc.isInsertRow() || !loc.isInsertColumn())
 			return;
 
 		Color color = UIManager.getColor("Table.dropLineColor");
@@ -2427,10 +2844,10 @@ public class BasicTreeTableUI extends TreeTableUI {
 							path.getLastPathComponent(), 0);
 					Rectangle node = tree.getPathBounds(
 							path.pathByAddingChild(child));
-					if (treeHandleWidth > 0 && tree.getShowsRootHandles())
-						node.x -= treeHandleWidth;
-					x += node.x;
-					w -= node.x;
+					if (node != null) {
+						x += node.x;
+						w -= node.x;
+					}
 				}
 				g.fillRect(x, rect.y, w, rect.height);
 			}
