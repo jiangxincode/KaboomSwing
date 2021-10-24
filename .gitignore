@@ -1,0 +1,14 @@
+# Maven
+target/
+
+# Eclipse
+.settings/
+
+# IntelliJ IDEA
+.idea/**/workspace.xml
+
+# Others
+*.db
+*.log
+*.properties
+/dependency-reduced-pom.xml
